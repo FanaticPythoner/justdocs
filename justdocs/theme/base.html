@@ -1,0 +1,431 @@
+{% set justdocs = config.extra.justdocs if config.extra and config.extra.justdocs else {} %}
+{% set justdocs_layout = justdocs.layout if justdocs.layout else {} %}
+{% set justdocs_breakpoints = justdocs_layout.breakpoints if justdocs_layout.breakpoints else {} %}
+{% set justdocs_sidebars = justdocs_layout.sidebars if justdocs_layout.sidebars else {} %}
+{% set justdocs_left_sidebar = justdocs_sidebars.left if justdocs_sidebars and justdocs_sidebars.left else {} %}
+{% set justdocs_right_sidebar = justdocs_sidebars.right if justdocs_sidebars and justdocs_sidebars.right else {} %}
+{% set justdocs_palette = justdocs.palette if justdocs.palette else {} %}
+{% set justdocs_palette_light = justdocs_palette.light if justdocs_palette.light else {} %}
+{% set justdocs_palette_dark = justdocs_palette.dark if justdocs_palette.dark else {} %}
+{% set justdocs_typography = justdocs.typography if justdocs.typography else {} %}
+{% set justdocs_shape = justdocs.shape if justdocs.shape else {} %}
+{% set justdocs_search = justdocs.search if justdocs.search else {} %}
+{% set justdocs_preferences = justdocs.preferences if justdocs.preferences else {} %}
+{% set justdocs_features = justdocs.features if justdocs.features else {} %}
+{% set justdocs_sidebars_enabled = justdocs_features.sidebars is not sameas false %}
+{% set justdocs_preferences_enabled = justdocs_preferences.enabled is not sameas false and justdocs_features.preferences is not sameas false %}
+{% set justdocs_search_enabled = justdocs_features.search is not sameas false %}
+{% set justdocs_theme_toggle_enabled = justdocs_features.theme_toggle is not sameas false %}
+{% set justdocs_code_copy_enabled = justdocs_features.code_copy is not sameas false %}
+{% set justdocs_mermaid_enabled = justdocs_features.mermaid is not sameas false %}
+{% set justdocs_navigation_scroll_enabled = justdocs_features.navigation_scroll is not sameas false %}
+{% set justdocs_table_labels_enabled = justdocs_features.table_labels is not sameas false %}
+{% set site_title = justdocs.title or config.site_name %}
+{% set favicon = justdocs.favicon or "M" %}
+{% set current_page = nav.current if nav.current is defined else none %}
+{% set document_title = page.title if page is defined and page.title is defined else config.site_name %}
+{% set page_label = current_page.title if current_page else document_title %}
+{% macro render_nav_items(items) %}
+<ul>
+{% for item in items %}
+    <li>
+    {% if item.children %}
+        {% if item.url %}
+        <a href="{{ item.url | url }}"{% if item.active %} class="active" aria-current="page"{% endif %}>{{ item.title }}</a>
+        {% else %}
+        <span class="nav-section">{{ item.title }}</span>
+        {% endif %}
+        {{ render_nav_items(item.children) }}
+    {% else %}
+        <a href="{{ item.url | url }}"{% if item.active %} class="active" aria-current="page"{% endif %}>{{ item.title }}</a>
+    {% endif %}
+    </li>
+{% endfor %}
+</ul>
+{% endmacro %}
+{% macro render_toc_items(items) %}
+<ul>
+{% for item in items %}
+    <li>
+        <a class="toclink" href="{{ item.url }}">{{ item.title }}</a>
+        {% if item.children %}
+        {{ render_toc_items(item.children) }}
+        {% endif %}
+    </li>
+{% endfor %}
+</ul>
+{% endmacro %}
+<!doctype html>
+<html lang="{{ config.theme.locale or 'en' }}">
+    <head>
+        <meta charset="utf-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <meta name="description" content="{{ config.site_description or site_title }}">
+        <title>{{ page_label }}{{ " - " ~ site_title if site_title }}</title>
+        <link rel="icon" href="data:image/svg+xml,&lt;svg xmlns=&quot;http://www.w3.org/2000/svg&quot; viewBox=&quot;0 0 100 100&quot;&gt;&lt;text y=&quot;.9em&quot; font-size=&quot;90&quot;&gt;{{ favicon }}&lt;/text&gt;&lt;/svg&gt;">
+        <link id="hljs-light" rel="stylesheet" href="{{ 'assets/css/highlightjs.min.css' | url }}">
+        <link id="hljs-dark" rel="stylesheet" href="{{ 'assets/css/highlightjs.min.css' | url }}" disabled>
+        <link rel="stylesheet" href="{{ 'assets/css/highlightjs-copy.min.css' | url }}">
+        <link rel="stylesheet" href="{{ 'assets/css/theme.css' | url }}">
+        <style>
+            :root {
+                --left-sidebar-width: {{ justdocs_left_sidebar.default_width or 296 }}px;
+                --right-sidebar-width: {{ justdocs_right_sidebar.default_width or 260 }}px;
+                --left-sidebar-min: {{ justdocs_left_sidebar.min_width or 220 }}px;
+                --right-sidebar-min: {{ justdocs_right_sidebar.min_width or 200 }}px;
+                --left-sidebar-max: {{ justdocs_left_sidebar.max_width or 520 }}px;
+                --right-sidebar-max: {{ justdocs_right_sidebar.max_width or 420 }}px;
+                --font-text: {{ justdocs_typography.text_font or 'Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif' }};
+                --font-mono: {{ justdocs_typography.mono_font or '"SFMono-Regular", Consolas, "Liberation Mono", Menlo, monospace' }};
+                --font-size-base: {{ justdocs_typography.base_size or 16 }}px;
+                --line-height-body: {{ justdocs_typography.line_height or 1.6 }};
+                --radius-code: {{ justdocs_shape.code_radius or "0.25rem" }};
+                --radius-control: {{ justdocs_shape.control_radius or "0.45rem" }};
+                --radius-panel: {{ justdocs_shape.panel_radius or "0.5rem" }};
+                --bg: {{ justdocs_palette_light.bg or "#f6f8fb" }};
+                --surface: {{ justdocs_palette_light.surface or "#ffffff" }};
+                --surface-alt: {{ justdocs_palette_light.surface_alt or "#eef3f8" }};
+                --surface-code: {{ justdocs_palette_light.surface_code or "#111827" }};
+                --text: {{ justdocs_palette_light.text or "#172033" }};
+                --muted: {{ justdocs_palette_light.muted or "#627186" }};
+                --border: {{ justdocs_palette_light.border or "#d8e0ea" }};
+                --border-strong: {{ justdocs_palette_light.border_strong or "#b8c5d6" }};
+                --link: {{ justdocs_palette_light.link or "#075fb8" }};
+                --link-soft: {{ justdocs_palette_light.link_soft or "#e7f0fc" }};
+                --link-hover: {{ justdocs_palette_light.link_hover or "#064b8f" }};
+                --code: {{ justdocs_palette_light.code or "#e9eef7" }};
+                --inline-code-bg: {{ justdocs_palette_light.inline_code_bg or "#edf2f7" }};
+                --inline-code-text: {{ justdocs_palette_light.inline_code_text or "#7a3f12" }};
+                --control-bg: {{ justdocs_palette_light.control_bg or "#ffffff" }};
+                --control-bg-hover: {{ justdocs_palette_light.control_bg_hover or "#f0f5fb" }};
+                --control-ring: {{ justdocs_palette_light.control_ring or "#7ab8ff" }};
+                --search-mark: {{ justdocs_palette_light.search_mark or "#fff3c4" }};
+            }
+
+            html[data-theme="dark"] {
+                --bg: {{ justdocs_palette_dark.bg or "#101113" }};
+                --surface: {{ justdocs_palette_dark.surface or "#181b1f" }};
+                --surface-alt: {{ justdocs_palette_dark.surface_alt or "#23282e" }};
+                --surface-code: {{ justdocs_palette_dark.surface_code or "#080b10" }};
+                --text: {{ justdocs_palette_dark.text or "#eef2f6" }};
+                --muted: {{ justdocs_palette_dark.muted or "#a6b1bf" }};
+                --border: {{ justdocs_palette_dark.border or "#303842" }};
+                --border-strong: {{ justdocs_palette_dark.border_strong or "#465160" }};
+                --link: {{ justdocs_palette_dark.link or "#72b7ff" }};
+                --link-soft: {{ justdocs_palette_dark.link_soft or "#163653" }};
+                --link-hover: {{ justdocs_palette_dark.link_hover or "#a8d3ff" }};
+                --code: {{ justdocs_palette_dark.code or "#edf5ff" }};
+                --inline-code-bg: {{ justdocs_palette_dark.inline_code_bg or "#2a3037" }};
+                --inline-code-text: {{ justdocs_palette_dark.inline_code_text or "#ffd199" }};
+                --control-bg: {{ justdocs_palette_dark.control_bg or "#20242a" }};
+                --control-bg-hover: {{ justdocs_palette_dark.control_bg_hover or "#2b3138" }};
+                --control-ring: {{ justdocs_palette_dark.control_ring or "#72b7ff" }};
+                --search-mark: {{ justdocs_palette_dark.search_mark or "#5b4519" }};
+            }
+        </style>
+        <script>
+            window.JUSTDOCS = {
+                baseUrl: {{ base_url | tojson }},
+                config: {
+                    layout: {
+                        breakpoints: {
+                            rightDrawer: {{ justdocs_breakpoints.right_drawer or 1240 }},
+                            compactTopbar: {{ justdocs_breakpoints.compact_topbar or 980 }},
+                            mobile: {{ justdocs_breakpoints.mobile or 860 }},
+                            small: {{ justdocs_breakpoints.small or 520 }},
+                        },
+                        contentWidth: {{ (justdocs_layout.content_width or "standard") | tojson }},
+                        density: {{ (justdocs_layout.density or "comfortable") | tojson }},
+                        motion: {{ (justdocs_layout.motion or "system") | tojson }},
+                        sidebars: {
+                            left: {
+                                defaultWidth: {{ justdocs_left_sidebar.default_width or 296 }},
+                                min: {{ justdocs_left_sidebar.min_width or 220 }},
+                                max: {{ justdocs_left_sidebar.max_width or 520 }},
+                                viewportRatio: {{ justdocs_left_sidebar.viewport_ratio or 0.38 }},
+                                collapseMargin: {{ justdocs_left_sidebar.collapse_margin or 56 }},
+                            },
+                            right: {
+                                defaultWidth: {{ justdocs_right_sidebar.default_width or 260 }},
+                                min: {{ justdocs_right_sidebar.min_width or 200 }},
+                                max: {{ justdocs_right_sidebar.max_width or 420 }},
+                                viewportRatio: {{ justdocs_right_sidebar.viewport_ratio or 0.34 }},
+                                collapseMargin: {{ justdocs_right_sidebar.collapse_margin or 56 }},
+                            },
+                        },
+                    },
+                    preferences: {
+                        enabled: {{ justdocs_preferences_enabled | tojson }},
+                    },
+                    features: {
+                        codeCopy: {{ justdocs_code_copy_enabled | tojson }},
+                        mermaid: {{ justdocs_mermaid_enabled | tojson }},
+                        navigationScroll: {{ justdocs_navigation_scroll_enabled | tojson }},
+                        search: {{ justdocs_search_enabled | tojson }},
+                        sidebars: {{ justdocs_sidebars_enabled | tojson }},
+                        tableLabels: {{ justdocs_table_labels_enabled | tojson }},
+                        themeToggle: {{ justdocs_theme_toggle_enabled | tojson }},
+                    },
+                    search: {
+                        minChars: {{ justdocs_search.min_chars or 2 }},
+                        limit: {{ justdocs_search.limit or 8 }},
+                    },
+                },
+            };
+            (() => {
+                const justdocsConfig = window.JUSTDOCS.config;
+                const breakpoints = justdocsConfig.layout.breakpoints;
+                const preferencesEnabled = justdocsConfig.preferences.enabled !== false;
+                const setViewport = () => {
+                    const width = window.innerWidth;
+                    document.documentElement.dataset.justdocsViewport =
+                        width <= breakpoints.mobile
+                            ? "mobile"
+                            : width <= breakpoints.rightDrawer ? "drawer" : "desktop";
+                    document.documentElement.dataset.justdocsCompactTopbar =
+                        String(width <= breakpoints.compactTopbar);
+                    document.documentElement.dataset.justdocsSmall = String(width <= breakpoints.small);
+                };
+                setViewport();
+
+                const storedTheme = localStorage.getItem("justdocs-theme");
+                const prefersDark = matchMedia("(prefers-color-scheme: dark)").matches;
+                const theme = storedTheme === "dark" || storedTheme === "light"
+                    ? storedTheme
+                    : prefersDark ? "dark" : "light";
+                document.documentElement.dataset.theme = theme;
+                document.documentElement.dataset.justdocsDensity = preferencesEnabled
+                    ? localStorage.getItem("justdocs-density") || justdocsConfig.layout.density
+                    : justdocsConfig.layout.density;
+                document.documentElement.dataset.justdocsContentWidth = preferencesEnabled
+                    ? localStorage.getItem("justdocs-content-width") || justdocsConfig.layout.contentWidth
+                    : justdocsConfig.layout.contentWidth;
+                document.documentElement.dataset.justdocsMotion = preferencesEnabled
+                    ? localStorage.getItem("justdocs-motion") || justdocsConfig.layout.motion
+                    : justdocsConfig.layout.motion;
+
+                const sidebars = {
+                    left: {
+                        stateKey: "justdocs-sidebar-left-state",
+                        widthKey: "justdocs-sidebar-left-width",
+                        cssVar: "--left-sidebar-width",
+                    },
+                    right: {
+                        stateKey: "justdocs-sidebar-right-state",
+                        widthKey: "justdocs-sidebar-right-width",
+                        cssVar: "--right-sidebar-width",
+                    },
+                };
+
+                Object.entries(sidebars).forEach(([side, config]) => {
+                    const state = localStorage.getItem(config.stateKey);
+                    const width = localStorage.getItem(config.widthKey);
+                    const defaultCollapsed =
+                        side === "right" && document.documentElement.dataset.justdocsViewport === "drawer";
+                    const collapsed = state === "collapsed" || (!state && defaultCollapsed);
+                    document.documentElement.dataset[`${side}Sidebar`] =
+                        collapsed ? "collapsed" : "expanded";
+                    if (collapsed) {
+                        document.documentElement.style.setProperty(config.cssVar, "0px");
+                    } else if (/^\d+px$/.test(width || "")) {
+                        document.documentElement.style.setProperty(config.cssVar, width);
+                    }
+                });
+            })();
+        </script>
+        <script defer src="{{ 'assets/js/highlightjs.min.js' | url }}"></script>
+        {% if justdocs_code_copy_enabled %}
+        <script defer src="{{ 'assets/js/highlightjs-copy.min.js' | url }}"></script>
+        {% endif %}
+        <script defer src="{{ 'assets/js/mermaid.min.js' | url }}"></script>
+        <script defer src="{{ 'assets/js/theme.js' | url }}"></script>
+    </head>
+    <body>
+        <a class="skip-link" href="#content">Skip to content</a>
+        <header class="topbar">
+            <a class="brand" href="{{ nav.homepage.url | url if nav.homepage else '/' | url }}">{{ site_title }}</a>
+            <span class="page-label">{{ page_label }}</span>
+            <div class="topbar-actions">
+                {% if justdocs_sidebars_enabled %}
+                <div class="sidebar-controls" aria-label="Sidebar controls">
+                    <button
+                        class="sidebar-toggle"
+                        type="button"
+                        data-sidebar-toggle="left"
+                        aria-controls="primary-navigation"
+                        aria-pressed="false"
+                        aria-label="Toggle primary navigation"
+                        title="Toggle primary navigation"
+                    >
+                        <span class="sidebar-toggle-icon sidebar-toggle-icon-left" aria-hidden="true"></span>
+                    </button>
+                    <button
+                        class="sidebar-toggle"
+                        type="button"
+                        data-sidebar-toggle="right"
+                        aria-controls="page-sections"
+                        aria-pressed="false"
+                        aria-label="Toggle page sections"
+                        title="Toggle page sections"
+                    >
+                        <span class="sidebar-toggle-icon sidebar-toggle-icon-right" aria-hidden="true"></span>
+                    </button>
+                </div>
+                {% endif %}
+                {% if justdocs_search_enabled %}
+                <form class="site-search" role="search" autocomplete="off" data-search>
+                    <label class="search-label" for="site-search-input">Search</label>
+                    <div class="search-box">
+                        <input
+                            id="site-search-input"
+                            type="search"
+                            placeholder="Search docs"
+                            aria-controls="site-search-results"
+                            aria-expanded="false"
+                            data-search-input
+                        >
+                        <kbd>/</kbd>
+                    </div>
+                    <div class="search-panel" data-search-panel hidden>
+                        <div class="search-status" role="status" data-search-status>Search idle</div>
+                        <ol id="site-search-results" class="search-results" data-search-results></ol>
+                    </div>
+                </form>
+                {% endif %}
+                {% if justdocs_theme_toggle_enabled %}
+                <button class="theme-toggle" type="button" data-theme-toggle aria-pressed="false">
+                    <span data-theme-toggle-label>Dark</span>
+                </button>
+                {% endif %}
+                {% if justdocs_preferences_enabled %}
+                <div class="preferences" data-preferences>
+                    <button
+                        class="preferences-toggle"
+                        type="button"
+                        data-preferences-toggle
+                        aria-controls="justdocs-preferences-panel"
+                        aria-expanded="false"
+                        aria-label="Preferences"
+                        title="Preferences"
+                    >
+                        <span class="preferences-toggle-icon" aria-hidden="true"></span>
+                    </button>
+                    <div
+                        id="justdocs-preferences-panel"
+                        class="preferences-panel"
+                        data-preferences-panel
+                        hidden
+                    >
+                        <div class="preference-group">
+                            <span class="preference-label">Density</span>
+                            <div class="segmented-control" role="group" aria-label="Density">
+                                <button type="button" data-preference-choice="density" data-value="comfortable">Comfort</button>
+                                <button type="button" data-preference-choice="density" data-value="compact">Compact</button>
+                            </div>
+                        </div>
+                        <div class="preference-group">
+                            <span class="preference-label">Width</span>
+                            <div class="segmented-control" role="group" aria-label="Content width">
+                                <button type="button" data-preference-choice="contentWidth" data-value="narrow">Narrow</button>
+                                <button type="button" data-preference-choice="contentWidth" data-value="standard">Standard</button>
+                                <button type="button" data-preference-choice="contentWidth" data-value="wide">Wide</button>
+                                <button type="button" data-preference-choice="contentWidth" data-value="fluid">Fluid</button>
+                            </div>
+                        </div>
+                        <div class="preference-group">
+                            <span class="preference-label">Motion</span>
+                            <div class="segmented-control" role="group" aria-label="Motion">
+                                <button type="button" data-preference-choice="motion" data-value="system">System</button>
+                                <button type="button" data-preference-choice="motion" data-value="reduced">Reduced</button>
+                            </div>
+                        </div>
+                        <button class="preferences-reset" type="button" data-preferences-reset>Reset</button>
+                    </div>
+                </div>
+                {% endif %}
+            </div>
+        </header>
+        <nav id="primary-navigation" class="left" aria-label="Primary navigation">
+            {{ render_nav_items(nav) }}
+        </nav>
+        {% if justdocs_sidebars_enabled %}
+        <div
+            class="sidebar-resizer sidebar-resizer-left"
+            data-sidebar-resizer="left"
+            role="separator"
+            aria-controls="primary-navigation"
+            aria-label="Resize primary navigation"
+            aria-orientation="vertical"
+            aria-valuemin="220"
+            aria-valuemax="520"
+            aria-valuenow="296"
+            tabindex="0"
+        ></div>
+        <button
+            class="sidebar-restore sidebar-restore-left"
+            type="button"
+            data-sidebar-restore="left"
+            aria-controls="primary-navigation"
+            aria-label="Expand primary navigation"
+            title="Expand primary navigation"
+        >
+            <span class="sidebar-restore-icon sidebar-restore-icon-left" aria-hidden="true"></span>
+        </button>
+        {% endif %}
+        <main id="content">
+            <details class="mobile-nav">
+                <summary>Navigation</summary>
+                {{ render_nav_items(nav) }}
+            </details>
+            {% block content %}
+            {{ page.content if page is defined and page.content is defined else "" }}
+            {% endblock %}
+            {% if page is defined and (page.previous_page or page.next_page) %}
+            <div class="pagination">
+                {% if page.previous_page %}
+                <a class="previous" href="{{ page.previous_page.url | url }}">Previous: {{ page.previous_page.title }}</a>
+                {% endif %}
+                {% if page.next_page %}
+                <a class="next" href="{{ page.next_page.url | url }}">Next: {{ page.next_page.title }}</a>
+                {% endif %}
+            </div>
+            {% endif %}
+        </main>
+        {% if justdocs_sidebars_enabled %}
+        <div
+            class="sidebar-resizer sidebar-resizer-right"
+            data-sidebar-resizer="right"
+            role="separator"
+            aria-controls="page-sections"
+            aria-label="Resize page sections"
+            aria-orientation="vertical"
+            aria-valuemin="200"
+            aria-valuemax="420"
+            aria-valuenow="260"
+            tabindex="0"
+        ></div>
+        <button
+            class="sidebar-restore sidebar-restore-right"
+            type="button"
+            data-sidebar-restore="right"
+            aria-controls="page-sections"
+            aria-label="Expand page sections"
+            title="Expand page sections"
+        >
+            <span class="sidebar-restore-icon sidebar-restore-icon-right" aria-hidden="true"></span>
+        </button>
+        <button
+            class="sidebar-scrim"
+            type="button"
+            data-sidebar-scrim="right"
+            aria-label="Close page sections"
+            title="Close page sections"
+        ></button>
+        {% endif %}
+        <nav id="page-sections" class="right" aria-label="Page sections">
+            {% if page is defined and page.toc %}
+            {{ render_toc_items(page.toc) }}
+            {% endif %}
+        </nav>
+    </body>
+</html>

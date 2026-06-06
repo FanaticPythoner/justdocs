@@ -1,0 +1,115 @@
+site_name: justdocs Example
+site_description: Example site for the reusable MkDocs justdocs theme.
+site_url: http://127.0.0.1:8020/
+
+docs_dir: docs
+site_dir: site
+
+theme:
+  name: justdocs
+  locale: en
+
+plugins:
+  - search
+  - justdocs-linker
+
+markdown_extensions:
+  - tables
+  - pymdownx.highlight:
+      pygments_lang_class: true
+  - pymdownx.superfences:
+      custom_fences:
+        - name: mermaid
+          class: mermaid
+          format: !!python/name:pymdownx.superfences.fence_code_format
+  - toc:
+      permalink: true
+      toc_depth: 3
+
+extra:
+  justdocs:
+    title: justdocs
+    favicon: M
+    palette:
+      light:
+        bg: "#f6f8fb"
+        surface: "#ffffff"
+        surface_alt: "#eef3f8"
+        surface_code: "#111827"
+        text: "#172033"
+        muted: "#627186"
+        border: "#d8e0ea"
+        border_strong: "#b8c5d6"
+        link: "#075fb8"
+        link_soft: "#e7f0fc"
+        link_hover: "#064b8f"
+        code: "#e9eef7"
+        inline_code_bg: "#edf2f7"
+        inline_code_text: "#7a3f12"
+        control_bg: "#ffffff"
+        control_bg_hover: "#f0f5fb"
+        control_ring: "#7ab8ff"
+        search_mark: "#fff3c4"
+      dark:
+        bg: "#101113"
+        surface: "#181b1f"
+        surface_alt: "#23282e"
+        surface_code: "#080b10"
+        text: "#eef2f6"
+        muted: "#a6b1bf"
+        border: "#303842"
+        border_strong: "#465160"
+        link: "#72b7ff"
+        link_soft: "#163653"
+        link_hover: "#a8d3ff"
+        code: "#edf5ff"
+        inline_code_bg: "#2a3037"
+        inline_code_text: "#ffd199"
+        control_bg: "#20242a"
+        control_bg_hover: "#2b3138"
+        control_ring: "#72b7ff"
+        search_mark: "#5b4519"
+    typography:
+      text_font: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif
+      mono_font: '"SFMono-Regular", Consolas, "Liberation Mono", Menlo, monospace'
+      base_size: 16
+      line_height: 1.6
+    shape:
+      code_radius: 0.25rem
+      control_radius: 0.45rem
+      panel_radius: 0.5rem
+    layout:
+      content_width: standard
+      density: comfortable
+      motion: system
+      breakpoints:
+        right_drawer: 1240
+        compact_topbar: 980
+        mobile: 860
+        small: 520
+      sidebars:
+        left:
+          default_width: 296
+          min_width: 220
+          max_width: 520
+          viewport_ratio: 0.38
+          collapse_margin: 56
+        right:
+          default_width: 260
+          min_width: 200
+          max_width: 420
+          viewport_ratio: 0.34
+          collapse_margin: 56
+    preferences:
+      enabled: true
+    features:
+      code_copy: true
+      mermaid: true
+      navigation_scroll: true
+      search: true
+      sidebars: true
+      table_labels: true
+      theme_toggle: true
+    search:
+      min_chars: 2
+      limit: 8

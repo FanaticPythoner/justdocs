@@ -1,0 +1,23 @@
+extends: mkdocs
+
+static_templates:
+  - 404.html
+
+locale: en
+include_search_page: false
+search_index_only: false
+
+highlightjs: false
+navigation_depth: 3
+nav_style: primary
+color_mode: light
+user_color_mode_toggle: true
+
+analytics:
+  gtag: null
+
+shortcuts:
+  help: 191
+  next: 78
+  previous: 80
+  search: 83

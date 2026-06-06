@@ -1,0 +1,34 @@
+[build-system]
+requires = ["setuptools>=69"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "justdocs"
+version = "0.1.0"
+description = "Reusable MkDocs custom theme with local search and dark mode."
+requires-python = ">=3.10"
+dependencies = ["mkdocs>=1.6,<3"]
+
+[project.scripts]
+justdocs = "justdocs.cli:main"
+
+[project.entry-points."mkdocs.themes"]
+justdocs = "justdocs.theme"
+
+[project.entry-points."mkdocs.plugins"]
+justdocs-linker = "justdocs.plugins:JustdocsLinkerPlugin"
+
+[tool.setuptools.packages.find]
+include = ["justdocs*"]
+
+[tool.setuptools.package-data]
+justdocs = [
+    "theme/404.html",
+    "theme/base.html",
+    "theme/mkdocs_theme.yml",
+    "theme/main.html",
+    "theme/assets/css/*.css",
+    "theme/assets/js/*.js",
+    "theme/assets/js/*.txt",
+    "templates/*.Justfile",
+]
