@@ -5,6 +5,15 @@ site_url: http://127.0.0.1:8020/
 docs_dir: docs
 site_dir: site
 
+nav:
+  - justdocs: index.md
+  - Concepts:
+      - Theme Configuration: concepts/theme-configuration.md
+  - Guides:
+      - Project Setup: guides/project-setup.md
+      - Smart Links: guides/advanced/smart-links.md
+  - Reference: reference.md
+
 theme:
   name: justdocs
   locale: en

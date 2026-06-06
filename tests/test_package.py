@@ -208,11 +208,57 @@ class ThemePackageTest(unittest.TestCase):
 
     def test_example_documents_customization_surface(self) -> None:
         config = Path("examples/basic/mkdocs.yml").read_text(encoding="utf-8")
+        self.assertIn("nav:", config)
+        self.assertIn("concepts/theme-configuration.md", config)
+        self.assertIn("guides/project-setup.md", config)
+        self.assertIn("guides/advanced/smart-links.md", config)
         self.assertIn("palette:", config)
         self.assertIn("typography:", config)
         self.assertIn("shape:", config)
         self.assertIn("features:", config)
         self.assertIn("content_width: standard", config)
+
+    def test_docs_cover_current_contracts(self) -> None:
+        root = Path("examples/basic/docs")
+        docs = {
+            "index": root / "index.md",
+            "theme": root / "concepts/theme-configuration.md",
+            "setup": root / "guides/project-setup.md",
+            "links": root / "guides/advanced/smart-links.md",
+            "reference": root / "reference.md",
+        }
+        for path in docs.values():
+            self.assertTrue(path.is_file(), path)
+        combined = "\n".join(path.read_text(encoding="utf-8") for path in docs.values())
+        readme = Path("README.md").read_text(encoding="utf-8")
+        required_terms = (
+            "justdocs-linker",
+            "min_phrase_chars",
+            "max_links_per_page",
+            "max_links_per_target",
+            "justdocs theme-dir",
+            "ThemeAssetError",
+            "TemplateAssetError",
+            "ProjectJustfileExistsError",
+            "ProjectJustfileInvalidPackageError",
+            "search index fetch failed",
+            "copy button asset missing",
+            "assets/js/mermaid.LICENSE.txt",
+            "justdocs-sidebar-left-state",
+            "O(p * t * s)",
+        )
+        for term in required_terms:
+            with self.subTest(term=term):
+                self.assertIn(term, readme)
+                self.assertIn(term, combined)
+        stale_terms = (
+            "Service " "Discovery",
+            "Deployment " "Guide",
+            "Traffic " "Policy",
+        )
+        for term in stale_terms:
+            with self.subTest(term=term):
+                self.assertNotIn(term, combined)
 
     def test_relative_url_uses_current_page_directory(self) -> None:
         self.assertEqual(
@@ -229,27 +275,35 @@ class ThemePackageTest(unittest.TestCase):
             "# Home\n\n"
             "| Topic | Existing |\n"
             "| --- | --- |\n"
-            "| Service Discovery | [Traffic Policy](custom.md) |\n\n"
-            "Deployment Guide consumes `Service Discovery`.\n\n"
+            "| Theme Configuration | [Smart Links](custom.md) |\n\n"
+            "Project Setup consumes `Theme Configuration`.\n\n"
             "```mermaid\n"
             "flowchart LR\n"
-            "    Service Discovery --> Deployment Guide\n"
+            "    Theme Configuration --> Project Setup\n"
             "```\n"
             "\n"
-            "Service Discovery remains plain text after the diagram.\n"
+            "Theme Configuration remains plain text after the diagram.\n"
         )
         targets = (
-            LinkTarget("Service Discovery", "concepts/service-discovery.md", "concepts/service-discovery.md"),
-            LinkTarget("Deployment Guide", "guides/deployment-guide.md", "guides/deployment-guide.md"),
-            LinkTarget("Traffic Policy", "guides/advanced/traffic-policy.md", "guides/advanced/traffic-policy.md"),
+            LinkTarget(
+                "Theme Configuration",
+                "concepts/theme-configuration.md",
+                "concepts/theme-configuration.md",
+            ),
+            LinkTarget("Project Setup", "guides/project-setup.md", "guides/project-setup.md"),
+            LinkTarget(
+                "Smart Links",
+                "guides/advanced/smart-links.md",
+                "guides/advanced/smart-links.md",
+            ),
         )
         linked = _smart_link_markdown(markdown, "index.md", "index.md", targets, 8)
-        self.assertIn("| [Service Discovery](concepts/service-discovery.md) |", linked)
-        self.assertIn("[Deployment Guide](guides/deployment-guide.md) consumes", linked)
-        self.assertIn("[Service Discovery](concepts/service-discovery.md) remains", linked)
-        self.assertIn("`Service Discovery`", linked)
-        self.assertIn("[Traffic Policy](custom.md)", linked)
-        self.assertIn("Service Discovery --> Deployment Guide", linked)
+        self.assertIn("| [Theme Configuration](concepts/theme-configuration.md) |", linked)
+        self.assertIn("[Project Setup](guides/project-setup.md) consumes", linked)
+        self.assertIn("[Theme Configuration](concepts/theme-configuration.md) remains", linked)
+        self.assertIn("`Theme Configuration`", linked)
+        self.assertIn("[Smart Links](custom.md)", linked)
+        self.assertIn("Theme Configuration --> Project Setup", linked)
 
     def test_smart_link_markdown_links_action_ids_inside_inline_code(self) -> None:
         markdown = (
