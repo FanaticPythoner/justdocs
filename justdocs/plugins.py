@@ -28,10 +28,20 @@ class LinkTarget:
 
 @dataclass(frozen=True)
 class CompiledLinkTarget:
-    """Store one link target with its matching automaton."""
+    """Store one link target with its normalized match key."""
 
     target: LinkTarget
-    pattern: re.Pattern[str]
+    key: str
+    pattern_text: str
+
+
+@dataclass(frozen=True)
+class CompiledLinkGraph:
+    """Store compiled smart-link targets."""
+
+    targets: tuple[CompiledLinkTarget, ...]
+    targets_by_key: dict[str, LinkTarget]
+    pattern: re.Pattern[str] | None
 
 
 HEADING_PATTERN = re.compile(r"^(#{1,6})[ \t]+(.+?)[ \t#]*$", re.MULTILINE)
@@ -159,13 +169,31 @@ def _dedupe_targets(targets: Iterable[LinkTarget], min_phrase_chars: int) -> tup
     )
 
 
-def _target_pattern(phrase: str) -> re.Pattern[str]:
+def _target_pattern_text(phrase: str) -> str:
     parts = [re.escape(part) for part in _normalize_text(phrase).split()]
-    return re.compile(r"(?<![\w-])" + r"\s+".join(parts) + r"(?![\w-])", re.IGNORECASE)
+    return r"(?<![\w-])" + r"\s+".join(parts) + r"(?![\w-])"
 
 
-def _compile_targets(targets: Iterable[LinkTarget]) -> tuple[CompiledLinkTarget, ...]:
-    return tuple(CompiledLinkTarget(target, _target_pattern(target.phrase)) for target in targets)
+def _target_pattern(phrase: str) -> re.Pattern[str]:
+    return re.compile(_target_pattern_text(phrase), re.IGNORECASE)
+
+
+def _compile_targets(targets: Iterable[LinkTarget]) -> CompiledLinkGraph:
+    compiled = tuple(
+        CompiledLinkTarget(
+            target=target,
+            key=_phrase_key(target.phrase),
+            pattern_text=_target_pattern_text(target.phrase),
+        )
+        for target in targets
+    )
+    targets_by_key = {target.key: target.target for target in compiled}
+    pattern = (
+        re.compile("|".join(f"(?:{target.pattern_text})" for target in compiled), re.IGNORECASE)
+        if compiled
+        else None
+    )
+    return CompiledLinkGraph(compiled, targets_by_key, pattern)
 
 
 def _protected_ranges(markdown: str, include_inline_code: bool = True) -> tuple[tuple[int, int], ...]:
@@ -222,7 +250,7 @@ def _link_segment(
     segment: str,
     current_url: str,
     current_src_path: str,
-    targets: tuple[CompiledLinkTarget, ...],
+    targets: CompiledLinkGraph,
     link_counts: dict[str, int],
     max_links_per_target: int,
     remaining_links: int,
@@ -230,45 +258,38 @@ def _link_segment(
     cursor = 0
     linked = 0
     output: list[str] = []
+    if targets.pattern is None:
+        return segment, 0
 
     while cursor < len(segment) and linked < remaining_links:
-        selected_match: re.Match[str] | None = None
-        selected_target: LinkTarget | None = None
-        for compiled in targets:
-            target = compiled.target
-            key = _phrase_key(target.phrase)
-            if link_counts.get(key, 0) >= max_links_per_target or target.src_path == current_src_path:
-                continue
-            match = compiled.pattern.search(segment, cursor)
-            if match is None:
-                continue
-            if selected_match is None or (match.start(), -len(target.phrase)) < (
-                selected_match.start(),
-                -len(selected_target.phrase) if selected_target else 0,
-            ):
-                selected_match = match
-                selected_target = target
-
-        if selected_match is None or selected_target is None:
+        match = targets.pattern.search(segment, cursor)
+        if match is None:
             break
+        key = _phrase_key(match.group(0))
+        target = targets.targets_by_key.get(key)
 
-        output.append(segment[cursor : selected_match.start()])
-        href = _relative_url(current_url, selected_target.url)
-        output.append(f"[{selected_match.group(0)}]({href})")
-        key = _phrase_key(selected_target.phrase)
+        output.append(segment[cursor : match.start()])
+        if (
+            target is None
+            or target.src_path == current_src_path
+            or link_counts.get(key, 0) >= max_links_per_target
+        ):
+            output.append(match.group(0))
+            cursor = match.end()
+            continue
+
+        href = _relative_url(current_url, target.url)
+        output.append(f"[{match.group(0)}]({href})")
         link_counts[key] = link_counts.get(key, 0) + 1
-        cursor = selected_match.end()
+        cursor = match.end()
         linked += 1
 
     output.append(segment[cursor:])
     return "".join(output), linked
 
 
-def _target_by_exact_phrase(targets: tuple[CompiledLinkTarget, ...]) -> dict[str, LinkTarget]:
-    by_key: dict[str, LinkTarget] = {}
-    for compiled in targets:
-        by_key[_phrase_key(compiled.target.phrase)] = compiled.target
-    return by_key
+def _target_by_exact_phrase(targets: CompiledLinkGraph) -> dict[str, LinkTarget]:
+    return targets.targets_by_key
 
 
 def _link_inline_code_segment(
@@ -307,7 +328,7 @@ def _link_inline_code_refs(
     markdown: str,
     current_url: str,
     current_src_path: str,
-    targets: tuple[CompiledLinkTarget, ...],
+    targets: CompiledLinkGraph,
     link_counts: dict[str, int],
     max_links_per_target: int,
     max_links_per_page: int,
@@ -354,11 +375,11 @@ def _smart_link_markdown(
     markdown: str,
     current_src_path: str,
     current_url: str,
-    targets: tuple[LinkTarget, ...],
+    targets: tuple[LinkTarget, ...] | CompiledLinkGraph,
     max_links_per_page: int,
     max_links_per_target: int = 2,
 ) -> str:
-    compiled_targets = _compile_targets(targets)
+    compiled_targets = targets if isinstance(targets, CompiledLinkGraph) else _compile_targets(targets)
     link_counts: dict[str, int] = {}
     markdown, linked = _link_inline_code_refs(
         markdown,
@@ -418,11 +439,11 @@ class JustdocsLinkerPlugin(BasePlugin):
     )
 
     def __init__(self) -> None:
-        self._targets: tuple[LinkTarget, ...] = ()
+        self._link_graph = _compile_targets(())
 
     def on_files(self, files, config):
         if not self.config["enabled"]:
-            self._targets = ()
+            self._link_graph = _compile_targets(())
             return files
 
         candidates: list[LinkTarget] = []
@@ -432,17 +453,17 @@ class JustdocsLinkerPlugin(BasePlugin):
             markdown = Path(file.abs_src_path).read_text(encoding="utf-8")
             candidates.extend(_candidate_targets(markdown, file.src_path))
 
-        self._targets = _dedupe_targets(candidates, self.config["min_phrase_chars"])
+        self._link_graph = _compile_targets(_dedupe_targets(candidates, self.config["min_phrase_chars"]))
         return files
 
     def on_page_markdown(self, markdown, page, config, files):
-        if not self.config["enabled"] or not self._targets:
+        if not self.config["enabled"] or not self._link_graph.targets:
             return markdown
         return _smart_link_markdown(
             markdown,
             page.file.src_path,
             page.file.src_path,
-            self._targets,
+            self._link_graph,
             self.config["max_links_per_page"],
             self.config["max_links_per_target"],
         )
