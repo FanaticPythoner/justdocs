@@ -325,3 +325,7 @@ Complexity for one page:
 | Command | Coverage |
 | --- | --- |
 | `PYTHONPATH=. python3 -m unittest discover -s tests` | Asset packaging, templates, project Justfile generation, feature wiring, CSS contracts, docs coverage, and linker behavior. |
+
+
+
+NOTE: Made public, from private, as of JUl 8 13:59
