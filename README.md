@@ -328,4 +328,4 @@ Complexity for one page:
 
 
 
-NOTE: Created as a private repository. Specified license, and made public as of Jul 8 13:59.
+NOTE: Created as a private repository. Specified license, and made public, as of Jul 8 13:59.
