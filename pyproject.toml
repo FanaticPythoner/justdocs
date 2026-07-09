@@ -12,7 +12,7 @@ license-files = ["LICENSE"]
 requires-python = ">=3.10"
 dependencies = [
     "mkdocs>=1.6,<3",
-    "packaging>=24,<26",
+    "packaging>=24,<27",
 ]
 classifiers = [
     "Development Status :: 4 - Beta",
