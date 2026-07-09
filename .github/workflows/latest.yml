@@ -1,0 +1,103 @@
+name: Latest
+
+on:
+  push:
+    branches:
+      - main
+  schedule:
+    - cron: '17 5 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: latest-main
+  cancel-in-progress: true
+
+jobs:
+  preflight:
+    runs-on: ubuntu-24.04
+    outputs:
+      release_ref: ${{ steps.meta.outputs.release_ref }}
+      release_sha: ${{ steps.meta.outputs.release_sha }}
+      release_short_sha: ${{ steps.meta.outputs.release_short_sha }}
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+          check-latest: true
+          cache: pip
+
+      - name: Resolve latest release metadata
+        id: meta
+        run: |
+          echo "release_ref=${GITHUB_SHA}" >> "$GITHUB_OUTPUT"
+          echo "release_sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+          echo "release_short_sha=$(git rev-parse --short=12 HEAD)" >> "$GITHUB_OUTPUT"
+
+      - name: Install package
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install . pymdown-extensions==10.12
+
+      - name: Run test suite
+        run: PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=. python -m unittest discover -s tests
+
+  build:
+    needs: preflight
+    uses: ./.github/workflows/reusable-build-python-package.yml
+    with:
+      ref: ${{ needs.preflight.outputs.release_ref }}
+    secrets: inherit
+
+  github-release:
+    needs:
+      - preflight
+      - build
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: ${{ needs.preflight.outputs.release_ref }}
+
+      - name: Download distributions
+        uses: actions/download-artifact@v4
+        with:
+          pattern: python-dist
+          path: artifacts/release
+          merge-multiple: true
+
+      - name: Write release notes
+        run: |
+          bash scripts/release/write-release-notes.sh \
+            --channel latest \
+            --tag latest \
+            --target "${{ needs.preflight.outputs.release_sha }}" \
+            --target-branch main \
+            --output artifacts/release-notes.md
+
+      - name: Create or update latest GitHub release
+        uses: ./.github/actions/release-assets
+        env:
+          GH_TOKEN: ${{ github.token }}
+        with:
+          release_tag: latest
+          release_name: Latest Nightly Build (${{ needs.preflight.outputs.release_short_sha }})
+          prerelease: 'true'
+          purge_existing_assets: 'true'
+          create_or_move_tag: 'true'
+          dist_dir: artifacts/release
+          notes_file: artifacts/release-notes.md

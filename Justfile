@@ -1,6 +1,7 @@
 set shell := ["bash", "-cu"]
 
 python := env_var_or_default("JUSTDOCS_PYTHON", "python3")
+global_python := env_var_or_default("JUSTDOCS_GLOBAL_PYTHON", python)
 example_addr := env_var_or_default("JUSTDOCS_EXAMPLE_ADDR", "127.0.0.1:8020")
 venv_python := ".venv/bin/python"
 venv_mkdocs := ".venv/bin/mkdocs"
@@ -13,14 +14,27 @@ install:
     @{{venv_python}} -m pip install --upgrade pip
     @package_spec="."; lock_dir="${TMPDIR:-/tmp}/justdocs-install-locks"; mkdir -p "$lock_dir"; package_root="$(pwd -P)"; lock_id="$(printf "%s" "$package_root" | cksum | awk '{print $1}')"; flock "$lock_dir/$lock_id.lock" {{venv_python}} -m pip install $package_spec pymdown-extensions==10.12
 
+global-install:
+    @{{global_python}} -c "import sys; sys.path.insert(0, '.'); from justdocs.global_cli import main; raise SystemExit(main(['install', '--project-root', '.']))"
+
+install-global: global-install
+
+global-uninstall:
+    @{{global_python}} -c "import sys; sys.path.insert(0, '.'); from justdocs.global_cli import main; raise SystemExit(main(['uninstall']))"
+
+uninstall-global: global-uninstall
+
 theme-dir:
     @PYTHONPATH=. {{python}} -m justdocs.cli theme-dir
 
 example-justfile: install
     @PYTHONPATH=. {{venv_python}} -m justdocs.cli init --root examples/basic --package ../.. --addr {{example_addr}} --force
 
-test:
-    @PYTHONPATH=. {{python}} -m unittest discover -s tests
+test: install
+    @PYTHONPATH=. {{venv_python}} -m unittest discover -s tests
+
+dist: install
+    @PYTHON_BIN={{venv_python}} bash scripts/release/build-python-package.sh
 
 example-build: example-justfile
     @cd examples/basic && just check
@@ -28,6 +42,5 @@ example-build: example-justfile
 example-serve: example-justfile
     @cd examples/basic && just serve
 
-check: install
-    just test
+check: test
     just example-build

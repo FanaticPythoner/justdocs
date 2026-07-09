@@ -1,0 +1,95 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test-build:
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-24.04
+            python-version: '3.10'
+            build-dist: false
+          - os: ubuntu-24.04
+            python-version: '3.11'
+            build-dist: false
+          - os: ubuntu-24.04
+            python-version: '3.12'
+            build-dist: true
+          - os: ubuntu-24.04
+            python-version: '3.13'
+            build-dist: false
+          - os: ubuntu-24.04
+            python-version: '3.13t'
+            build-dist: false
+          - os: ubuntu-24.04
+            python-version: '3.14'
+            build-dist: false
+          - os: ubuntu-24.04
+            python-version: '3.14t'
+            build-dist: false
+          - os: macos-15
+            python-version: '3.14'
+            build-dist: false
+          - os: macos-15
+            python-version: '3.14t'
+            build-dist: false
+          - os: windows-2025
+            python-version: '3.14'
+            build-dist: false
+          - os: windows-2025
+            python-version: '3.14t'
+            build-dist: false
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: ${{ matrix.python-version }}
+          check-latest: true
+          cache: pip
+          cache-dependency-path: pyproject.toml
+
+      - name: Install package
+        shell: bash
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install . pymdown-extensions==10.12
+
+      - name: Run test suite
+        shell: bash
+        run: PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=. python -m unittest discover -s tests
+
+      - name: Build distributions
+        if: matrix.build-dist
+        id: dist
+        uses: ./.github/actions/build-dist
+        with:
+          python_version: ${{ matrix.python-version }}
+
+      - name: Upload distributions
+        if: matrix.build-dist
+        uses: actions/upload-artifact@v4
+        with:
+          name: justdocs-python-dist
+          path: ${{ steps.dist.outputs.dist_dir }}/*
+          if-no-files-found: error

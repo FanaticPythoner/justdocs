@@ -69,8 +69,8 @@ def write_project_justfile(config: ProjectJustfileConfig, *, force: bool = False
     return path
 
 
-def _validate_package_spec(package: str) -> None:
-    """Reject package specs that select mutable development install mode."""
+def split_package_spec(package: str) -> tuple[str, ...]:
+    """Split a package spec into subprocess arguments."""
 
     try:
         tokens = shlex.split(package)
@@ -80,3 +80,10 @@ def _validate_package_spec(package: str) -> None:
         raise ProjectJustfileInvalidPackageError("invalid package spec: empty")
     if any(token == "-e" or token == "--editable" or token.startswith("--editable=") for token in tokens):
         raise ProjectJustfileInvalidPackageError("invalid package spec: editable install flags rejected")
+    return tuple(tokens)
+
+
+def _validate_package_spec(package: str) -> None:
+    """Reject package specs that select mutable development install mode."""
+
+    split_package_spec(package)

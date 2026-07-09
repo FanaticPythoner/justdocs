@@ -1,0 +1,112 @@
+name: release-assets
+
+description: Ensure a GitHub Release exists and upload distribution assets.
+
+inputs:
+  release_tag:
+    required: true
+    description: Release tag.
+  release_name:
+    required: true
+    description: Release title.
+  prerelease:
+    required: true
+    description: "true or false."
+  purge_existing_assets:
+    required: true
+    description: "true or false."
+  create_or_move_tag:
+    required: true
+    description: "true or false."
+  dist_dir:
+    required: false
+    default: artifacts/release
+    description: Directory with files to upload.
+  notes_file:
+    required: false
+    default: ""
+    description: Release notes file.
+
+runs:
+  using: composite
+  steps:
+    - name: Show inputs
+      shell: bash
+      run: |
+        echo "tag=${{ inputs.release_tag }}"
+        echo "name=${{ inputs.release_name }}"
+        echo "prerelease=${{ inputs.prerelease }}"
+        echo "purge=${{ inputs.purge_existing_assets }}"
+        echo "create_or_move_tag=${{ inputs.create_or_move_tag }}"
+        echo "dist_dir=${{ inputs.dist_dir }}"
+
+    - name: Create or move tag
+      if: ${{ inputs.create_or_move_tag == 'true' }}
+      shell: bash
+      env:
+        GH_TOKEN: ${{ github.token }}
+      run: |
+        set -euo pipefail
+        git tag -f "${{ inputs.release_tag }}" "$GITHUB_SHA"
+        git push -f origin "refs/tags/${{ inputs.release_tag }}"
+
+    - name: Ensure release exists
+      shell: bash
+      env:
+        GH_TOKEN: ${{ github.token }}
+      run: |
+        set -euo pipefail
+        tag="${{ inputs.release_tag }}"
+        name="${{ inputs.release_name }}"
+        prerelease="${{ inputs.prerelease }}"
+        notes_file="${{ inputs.notes_file }}"
+        notes_args=(--notes "")
+        if [[ -n "$notes_file" ]]; then
+          notes_args=(--notes-file "$notes_file")
+        fi
+        if gh release view "$tag" >/dev/null 2>&1; then
+          args=(release edit "$tag" --title "$name" "${notes_args[@]}")
+          if [[ "$prerelease" == "true" ]]; then
+            args+=(--prerelease --latest=false)
+          else
+            args+=(--latest)
+          fi
+          gh "${args[@]}"
+        else
+          args=(release create "$tag" --title "$name" "${notes_args[@]}" --target "$GITHUB_SHA")
+          if [[ "$prerelease" == "true" ]]; then
+            args+=(--prerelease --latest=false)
+          else
+            args+=(--latest)
+          fi
+          gh "${args[@]}"
+        fi
+
+    - name: Purge existing assets
+      if: ${{ inputs.purge_existing_assets == 'true' }}
+      shell: bash
+      env:
+        GH_TOKEN: ${{ github.token }}
+      run: |
+        set -euo pipefail
+        ids="$(gh release view "${{ inputs.release_tag }}" --json assets --jq '.assets[].id')"
+        if [[ -n "${ids:-}" ]]; then
+          for id in $ids; do
+            gh api --method DELETE -H "Accept: application/vnd.github+json" \
+              "repos/${{ github.repository }}/releases/assets/$id" >/dev/null
+          done
+        fi
+
+    - name: Upload assets
+      shell: bash
+      env:
+        GH_TOKEN: ${{ github.token }}
+      run: |
+        set -euo pipefail
+        shopt -s nullglob
+        files=("${{ inputs.dist_dir }}"/*)
+        if [[ ${#files[@]} -eq 0 ]]; then
+          echo "No release assets found in '${{ inputs.dist_dir }}'." >&2
+          exit 1
+        fi
+        gh release upload "${{ inputs.release_tag }}" "${files[@]}" --clobber

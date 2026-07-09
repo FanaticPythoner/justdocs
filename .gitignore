@@ -217,4 +217,8 @@ __marimo__/
 # Streamlit
 .streamlit/secrets.toml
 examples/**/site/
-TODOS_LISTS/
+artifacts/release/
+artifacts/release-notes.md
+TODOS_LISTS/*
+!TODOS_LISTS/
+!TODOS_LISTS/AUDIT-*.md

@@ -1,0 +1,34 @@
+name: build-dist
+
+description: Build sdist and universal wheel, then generate SHA256SUMS.txt.
+
+inputs:
+  python_version:
+    description: Python version to use.
+    required: false
+    default: "3.12"
+
+outputs:
+  dist_dir:
+    description: Path to the built distributions.
+    value: ${{ steps.out.outputs.dist_dir }}
+
+runs:
+  using: composite
+  steps:
+    - name: Set up Python
+      uses: actions/setup-python@v6
+      with:
+        python-version: ${{ inputs.python_version }}
+        check-latest: true
+        cache: pip
+        cache-dependency-path: |
+          pyproject.toml
+
+    - name: Build distributions
+      shell: bash
+      run: bash scripts/release/build-python-package.sh
+
+    - id: out
+      shell: bash
+      run: echo "dist_dir=artifacts/release" >> "$GITHUB_OUTPUT"

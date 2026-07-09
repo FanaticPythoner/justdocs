@@ -7,10 +7,34 @@
 | Name | `justdocs` |
 | Version | `0.1.0` |
 | Python | `>=3.10` |
-| Dependency | `mkdocs>=1.6,<3` |
+| Dependency | `mkdocs>=1.6,<3`, `packaging>=24,<26` |
 | Console script | `justdocs = justdocs.cli:main` |
 | Theme entry point | `justdocs = justdocs.theme` |
 | Plugin entry point | `justdocs-linker = justdocs.plugins:JustdocsLinkerPlugin` |
+
+## Bootstrap Installers
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/FanaticPythoner/justdocs/main/install.sh | sh
+```
+
+```powershell
+irm https://raw.githubusercontent.com/FanaticPythoner/justdocs/main/install.ps1 | iex
+```
+
+| Variable | Default | Contract |
+| --- | --- | --- |
+| `JUSTDOCS_PYTHON` | Platform Python launcher search order | Python executable used for the install. |
+| `JUSTDOCS_INSTALL_SOURCE` | `github` | Install source: `github`, `pypi`, or `url`. |
+| `JUSTDOCS_INSTALL_VERSION` | Empty | Exact PyPI version for `justdocs==<version>`. |
+| `JUSTDOCS_INSTALL_REF` | `main` | GitHub branch, tag, or commit archive reference. |
+| `JUSTDOCS_INSTALL_SPEC` | Empty | Full pip requirement override. |
+| `JUSTDOCS_INSTALL_URL` | Empty | Package URL used when `JUSTDOCS_INSTALL_SOURCE=url`. |
+| `JUSTDOCS_INSTALL_DRY_RUN` | `0` | Print the resolved pip install command and exit. |
+| `JUSTDOCS_REPOSITORY` | `FanaticPythoner/justdocs` | GitHub repository used by `JUSTDOCS_INSTALL_SOURCE=github`. |
+
+Installers run `python -m pip install --user --upgrade`, then validate that
+`justdocs` resolves from the selected interpreter's user script directory.
 
 ## Required Assets
 
@@ -38,6 +62,11 @@
 | `ProjectJustfileConfig` | Store root, MkDocs config path, bind address, package spec, and derived port. |
 | `render_project_justfile()` | Render the packaged project recipe template. |
 | `write_project_justfile()` | Create the project root and write `Justfile`. |
+| `ProjectRecipeConfig` | Store project recipe execution inputs. |
+| `ProjectRecipeError` | Report project recipe execution invariant failure. |
+| `GlobalCliError` | Report global console-script install or uninstall invariant failure. |
+| `UpdateCheckError` | Report update metadata resolution failure. |
+| `UpdateInstallError` | Report update installation failure. |
 | `JustdocsLinkerPlugin` | Insert deterministic cross-page links before Markdown rendering. |
 
 ## CLI
@@ -46,6 +75,29 @@
 | --- | --- |
 | `justdocs theme-dir` | Validate required theme assets and print the absolute theme package path. |
 | `justdocs init` | Write a project-local `Justfile` from the packaged template. |
+| `justdocs project init` | Namespaced alias for `justdocs init`. |
+| `justdocs projects init` | Plural alias for `justdocs project init`. |
+| `justdocs project install` | Run the generated project `install` recipe without invoking `just`. |
+| `justdocs project check` | Run the generated project `check` recipe without invoking `just`. |
+| `justdocs project build` | Alias for `justdocs project check`. |
+| `justdocs project serve` | Run the generated project `serve` recipe without invoking `just`. |
+| `justdocs project serve-clean` | Run `free-port`, then `serve`, without invoking `just`. |
+| `justdocs project free-port` | Terminate local listeners on the configured port. |
+| `justdocs project clean` | Remove MkDocs output and cache directories. |
+| `justdocs project dist-clean` | Run `clean`, then remove the configured virtualenv. |
+| `justdocs version --check` | Print current version and newest available PyPI or GitHub release version. |
+| `justdocs self check-update` | Query PyPI JSON and GitHub Releases metadata for newer versions. |
+| `justdocs self update` | Upgrade the installed package from PyPI or a GitHub release tag. |
+
+## Release Pipeline
+
+| Surface | Contract |
+| --- | --- |
+| `.github/actions/build-dist/action.yml` | Build sdist, wheel, Twine check, and `SHA256SUMS.txt`. |
+| `.github/actions/release-assets/action.yml` | Create GitHub releases and upload distribution assets. |
+| `.github/workflows/release.yml` | Publish to PyPI through `pypa/gh-action-pypi-publish` when `PYPI_API_TOKEN` is present. |
+| `.github/workflows/latest.yml` | Maintain a moving `latest` prerelease from `main`. |
+| `install.sh` and `install.ps1` | GitHub release assets plus raw-repository bootstrap installers. |
 
 ## Errors
 
@@ -55,6 +107,10 @@
 | `TemplateAssetError` | Template asset validation fails. |
 | `ProjectJustfileExistsError` | Existing `Justfile` lacks overwrite permission. |
 | `ProjectJustfileInvalidPackageError` | Package spec is empty, malformed, or editable. |
+| `ProjectRecipeError` | Project recipe execution invariant fails. |
+| `GlobalCliError` | Global console-script install or uninstall invariant fails. |
+| `UpdateCheckError` | Update metadata resolution fails. |
+| `UpdateInstallError` | Update installation command fails. |
 | `JustdocsLinkerError` | MkDocs documentation page has no source path. |
 
 ## Browser Errors

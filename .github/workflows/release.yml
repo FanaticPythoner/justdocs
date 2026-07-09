@@ -1,0 +1,214 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - v*.*.*
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Existing version tag to release, e.g. v0.1.0
+        required: false
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  preflight:
+    runs-on: ubuntu-24.04
+    outputs:
+      tag: ${{ steps.meta.outputs.tag }}
+      prerelease: ${{ steps.meta.outputs.prerelease }}
+      release_ref: ${{ steps.meta.outputs.release_ref }}
+      release_sha: ${{ steps.meta.outputs.release_sha }}
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+          check-latest: true
+          cache: pip
+
+      - name: Resolve release metadata
+        id: meta
+        env:
+          INPUT_TAG: ${{ inputs.tag }}
+          REF_NAME: ${{ github.ref_name }}
+          REF_TYPE: ${{ github.ref_type }}
+        run: bash scripts/release/resolve-release-metadata.sh
+
+      - name: Install package
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install . pymdown-extensions==10.12
+
+      - name: Run release test suite
+        run: PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=. python -m unittest discover -s tests
+
+  build:
+    needs: preflight
+    uses: ./.github/workflows/reusable-build-python-package.yml
+    with:
+      ref: ${{ needs.preflight.outputs.release_ref }}
+      release_tag: ${{ needs.preflight.outputs.tag }}
+    secrets: inherit
+
+  publish:
+    needs:
+      - preflight
+      - build
+    runs-on: ubuntu-24.04
+    environment: release
+    permissions:
+      contents: read
+      id-token: write
+      attestations: write
+    outputs:
+      pypi_published: ${{ steps.pypi_gate.outputs.published }}
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.preflight.outputs.release_ref }}
+
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+          check-latest: true
+          cache: pip
+
+      - name: Download distributions
+        uses: actions/download-artifact@v4
+        with:
+          pattern: python-dist
+          path: artifacts/release
+          merge-multiple: true
+
+      - name: Resolve PyPI credentials
+        id: pypi_gate
+        env:
+          PYPI_API_TOKEN: ${{ secrets.PYPI_API_TOKEN }}
+        run: |
+          set -euo pipefail
+          if [[ -n "${PYPI_API_TOKEN:-}" ]]; then
+            echo 'publish=true' >> "$GITHUB_OUTPUT"
+            echo 'published=true' >> "$GITHUB_OUTPUT"
+          else
+            echo 'publish=false' >> "$GITHUB_OUTPUT"
+            echo 'published=false' >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Stage PyPI distributions
+        if: ${{ steps.pypi_gate.outputs.publish == 'true' }}
+        run: |
+          set -euo pipefail
+          mkdir -p artifacts/pypi
+          find artifacts/release -maxdepth 1 -type f \( -name '*.whl' -o -name '*.tar.gz' \) -exec cp {} artifacts/pypi/ \;
+          count="$(find artifacts/pypi -maxdepth 1 -type f | wc -l)"
+          if [[ "$count" -eq 0 ]]; then
+            echo 'No Python distribution artifacts found for PyPI.' >&2
+            exit 1
+          fi
+
+      - name: Publish to PyPI
+        if: ${{ steps.pypi_gate.outputs.publish == 'true' }}
+        uses: pypa/gh-action-pypi-publish@release/v1
+        with:
+          user: __token__
+          password: ${{ secrets.PYPI_API_TOKEN }}
+          packages-dir: artifacts/pypi
+          skip-existing: false
+          print-hash: true
+
+      - name: Attest build provenance
+        uses: actions/attest-build-provenance@v2
+        with:
+          subject-path: |
+            artifacts/release/*.whl
+            artifacts/release/*.tar.gz
+
+      - name: Record registry publication outcome
+        if: always()
+        run: |
+          {
+            echo '## Registry publication'
+            echo "- PyPI: ${{ steps.pypi_gate.outputs.published }}"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+  github-release:
+    needs:
+      - preflight
+      - publish
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: ${{ needs.preflight.outputs.release_ref }}
+
+      - name: Download distributions
+        uses: actions/download-artifact@v4
+        with:
+          pattern: python-dist
+          path: artifacts/release
+          merge-multiple: true
+
+      - name: Write release notes
+        run: |
+          bash scripts/release/write-release-notes.sh \
+            --channel stable \
+            --tag "${{ needs.preflight.outputs.tag }}" \
+            --target "${{ needs.preflight.outputs.release_sha }}" \
+            --output artifacts/release-notes.md
+
+      - name: Create GitHub release
+        uses: ./.github/actions/release-assets
+        env:
+          GH_TOKEN: ${{ github.token }}
+        with:
+          release_tag: ${{ needs.preflight.outputs.tag }}
+          release_name: justdocs ${{ needs.preflight.outputs.tag }}
+          prerelease: ${{ needs.preflight.outputs.prerelease }}
+          purge_existing_assets: 'true'
+          create_or_move_tag: 'false'
+          dist_dir: artifacts/release
+          notes_file: artifacts/release-notes.md
+
+  verify-pypi:
+    needs:
+      - preflight
+      - publish
+      - github-release
+    if: ${{ needs.publish.outputs.pypi_published == 'true' }}
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: ${{ needs.preflight.outputs.release_ref }}
+
+      - name: Verify public PyPI publication
+        env:
+          RELEASE_TAG: ${{ needs.preflight.outputs.tag }}
+        run: bash scripts/release/verify-pypi.sh
