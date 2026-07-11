@@ -12,19 +12,21 @@ if [[ -z "$tag" ]]; then
   exit 1
 fi
 
-if [[ ! "$tag" =~ ^v[0-9]+\.[0-9]+\.[0-9]+([-.][0-9A-Za-z.-]+)?$ ]]; then
-  echo "Tag '$tag' is not a supported release tag." >&2
-  exit 1
-fi
-
-package_version="$(
+read -r package_version prerelease < <(
   python - <<'PY'
 from pathlib import Path
 import tomllib
 
-print(tomllib.loads(Path("pyproject.toml").read_text(encoding="utf-8"))["project"]["version"])
+from packaging.version import InvalidVersion, Version
+
+raw = tomllib.loads(Path("pyproject.toml").read_text(encoding="utf-8"))["project"]["version"]
+try:
+    version = Version(raw)
+except InvalidVersion as error:
+    raise SystemExit(f"Invalid pyproject.toml version '{raw}': {error}") from error
+print(raw, str(version.is_prerelease).lower())
 PY
-)"
+)
 
 if [[ "$tag" != "v${package_version}" ]]; then
   echo "Tag '$tag' does not match pyproject.toml version '${package_version}'." >&2
@@ -35,11 +37,6 @@ git fetch --force --tags origin "refs/tags/${tag}:refs/tags/${tag}"
 release_sha="$(git rev-list -n 1 "$tag")"
 git fetch --no-tags --force origin main:refs/remotes/origin/main
 git merge-base --is-ancestor "$release_sha" refs/remotes/origin/main
-
-prerelease=false
-if [[ "$tag" == *-* ]]; then
-  prerelease=true
-fi
 
 if [[ -n "${GITHUB_OUTPUT:-}" ]]; then
   {

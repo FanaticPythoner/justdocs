@@ -1,43 +1,28 @@
-set shell := ["bash", "-cu"]
-
-python := env_var_or_default("JUSTDOCS_PYTHON", "python3")
-config := env_var_or_default("JUSTDOCS_CONFIG", "{{ mkdocs_config }}")
-addr := env_var_or_default("JUSTDOCS_ADDR", "{{ addr }}")
-port := env_var_or_default("JUSTDOCS_PORT", "{{ port }}")
-package := env_var_or_default("JUSTDOCS_PACKAGE", "{{ package }}")
-extra_packages := env_var_or_default("JUSTDOCS_EXTRA_PACKAGES", "pymdown-extensions==10.12")
-venv_dir := env_var_or_default("JUSTDOCS_VENV", ".venv")
-venv_python := env_var_or_default("JUSTDOCS_VENV_PYTHON", ".venv/bin/python")
-venv_mkdocs := env_var_or_default("JUSTDOCS_VENV_MKDOCS", ".venv/bin/mkdocs")
+# justdocs-config: {{ config_json }}
 
 default:
     @just --list
 
-assert-package:
-    @case " {{package}} " in *" -e "*|*" --editable "*|*" --editable="*) echo "invalid JUSTDOCS_PACKAGE: editable install flags rejected" >&2; exit 1;; esac
+install:
+    @justdocs projects install --root .
 
-install: assert-package
-    @test -x {{venv_python}} || {{python}} -m venv {{venv_dir}}
-    @{{venv_python}} -m pip install --upgrade pip
-    @package_spec="{{package}}"; first="${package_spec%% *}"; if [ -d "$first" ] && [ -f "$first/pyproject.toml" ]; then command -v flock >/dev/null 2>&1 || { echo "flock is required for local source package installs" >&2; exit 1; }; lock_dir="${TMPDIR:-/tmp}/justdocs-install-locks"; mkdir -p "$lock_dir"; package_root="$(cd "$first" && pwd -P)"; lock_id="$(printf "%s" "$package_root" | cksum | awk '{print $1}')"; flock "$lock_dir/$lock_id.lock" {{venv_python}} -m pip install $package_spec {{extra_packages}}; else {{venv_python}} -m pip install $package_spec {{extra_packages}}; fi
+check:
+    @justdocs projects check --root .
 
-check: install
-    @{{venv_mkdocs}} build -f {{config}} --strict --clean
+build:
+    @justdocs projects build --root .
 
-build: check
+serve:
+    @justdocs projects serve --root .
 
-serve: install
-    @{{venv_mkdocs}} serve -f {{config}} -a {{addr}}
-
-serve-clean: install
-    just free-port
-    @{{venv_mkdocs}} serve -f {{config}} -a {{addr}}
+serve-clean:
+    @justdocs projects serve-clean --root .
 
 free-port:
-    @pids=$({ lsof -t -i:"{{port}}" 2>/dev/null || true; }); [ -n "$pids" ] && echo "$pids" | xargs -r kill -9 || true
+    @justdocs projects free-port --root .
 
 clean:
-    @rm -rf site .cache .mkdocs_cache
+    @justdocs projects clean --root .
 
-dist-clean: clean
-    @rm -rf {{venv_dir}}
+dist-clean:
+    @justdocs projects dist-clean --root .

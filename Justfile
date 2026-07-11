@@ -1,6 +1,7 @@
 set shell := ["bash", "-cu"]
+set windows-shell := ["powershell.exe", "-NoLogo", "-NoProfile", "-Command"]
 
-python := env_var_or_default("JUSTDOCS_PYTHON", "python3")
+python := env_var_or_default("JUSTDOCS_PYTHON", if os() == "windows" { "python" } else { "python3" })
 global_python := env_var_or_default("JUSTDOCS_GLOBAL_PYTHON", python)
 example_addr := env_var_or_default("JUSTDOCS_EXAMPLE_ADDR", "127.0.0.1:8020")
 venv_python := ".venv/bin/python"
@@ -17,18 +18,14 @@ install:
 global-install:
     @{{global_python}} -c "import sys; sys.path.insert(0, '.'); from justdocs.global_cli import main; raise SystemExit(main(['install', '--project-root', '.']))"
 
-install-global: global-install
-
 global-uninstall:
-    @{{global_python}} -c "import sys; sys.path.insert(0, '.'); from justdocs.global_cli import main; raise SystemExit(main(['uninstall']))"
-
-uninstall-global: global-uninstall
+    @{{global_python}} -c "import sys; sys.path.insert(0, '.'); from justdocs.global_cli import main; raise SystemExit(main(['uninstall', '--project-root', '.']))"
 
 theme-dir:
     @PYTHONPATH=. {{python}} -m justdocs.cli theme-dir
 
 example-justfile: install
-    @PYTHONPATH=. {{venv_python}} -m justdocs.cli init --root examples/basic --package ../.. --addr {{example_addr}} --force
+    @PYTHONPATH=. {{venv_python}} -m justdocs.cli projects init --root examples/basic --package ../.. --addr {{example_addr}} --force
 
 test: install
     @PYTHONPATH=. {{venv_python}} -m unittest discover -s tests
@@ -37,10 +34,10 @@ dist: install
     @PYTHON_BIN={{venv_python}} bash scripts/release/build-python-package.sh
 
 example-build: example-justfile
-    @cd examples/basic && just check
+    @cd examples/basic && PATH="../../.venv/bin:$PATH" just check
 
 example-serve: example-justfile
-    @cd examples/basic && just serve
+    @cd examples/basic && PATH="../../.venv/bin:$PATH" just serve
 
 check: test
     just example-build

@@ -1,134 +1,120 @@
-"""Install and remove the justdocs user-global console script."""
+"""Install and remove the isolated justdocs command environment."""
 
 from __future__ import annotations
 
 import argparse
 import os
-import shutil
 import sys
-import sysconfig
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from pathlib import Path
 
-from justdocs.install_support import install_lock, run_command
-
-
-PACKAGE_NAME = "justdocs"
-CONSOLE_SCRIPT = "justdocs"
+from justdocs.constants import PACKAGE_NAME
+from justdocs.install_support import run_command
 
 
 class GlobalCliError(RuntimeError):
-    """Report invalid global console-script install state."""
-
-
-def user_scripts_dir() -> Path:
-    """Return the current interpreter user script directory."""
-
-    scheme = f"{os.name}_user"
-    try:
-        path = sysconfig.get_path("scripts", scheme=scheme)
-    except KeyError as error:
-        raise GlobalCliError(f"missing Python user install scheme: {scheme}") from error
-    if path is None:
-        raise GlobalCliError(f"missing Python user script directory: {scheme}")
-    return Path(path)
-
-
-def console_script_candidates(scripts_dir: Path | None = None) -> tuple[Path, ...]:
-    """Return platform-specific console script paths."""
-
-    root = user_scripts_dir() if scripts_dir is None else scripts_dir
-    if os.name == "nt":
-        return (
-            root / f"{CONSOLE_SCRIPT}.exe",
-            root / f"{CONSOLE_SCRIPT}-script.py",
-            root / CONSOLE_SCRIPT,
-        )
-    return (root / CONSOLE_SCRIPT,)
-
-
-def existing_console_scripts(scripts_dir: Path | None = None) -> tuple[Path, ...]:
-    """Return installed console script candidates."""
-
-    return tuple(path for path in console_script_candidates(scripts_dir) if path.exists())
+    """Report invalid global command install state."""
 
 
 def install(project_root: Path) -> Path:
-    """Install the package as a user-global console script."""
+    """Install the source package through the platform bootstrapper."""
 
-    root = _source_project_root(project_root)
-    with install_lock(root):
-        run_pip(("install", "--user", "--upgrade", str(root)))
-    return verify_installed()
-
-
-def uninstall() -> None:
-    """Remove the package from the current interpreter environment."""
-
-    run_pip(("uninstall", "--yes", PACKAGE_NAME))
-    verify_uninstalled()
+    root = source_project_root(project_root)
+    environment = bootstrap_environment("install", root)
+    run_bootstrap(root, environment)
+    return installed_command_path(environment)
 
 
-def verify_installed() -> Path:
-    """Return the PATH-resolved console script after install."""
+def uninstall(project_root: Path) -> None:
+    """Remove the isolated package through the platform bootstrapper."""
 
-    scripts_dir = user_scripts_dir()
-    installed = existing_console_scripts(scripts_dir)
-    if not installed:
-        raise GlobalCliError(f"global install failed: missing console script in {scripts_dir}")
-    resolved = shutil.which(CONSOLE_SCRIPT)
-    if resolved is None:
-        raise GlobalCliError(f"global install failed: PATH missing {scripts_dir}")
-    resolved_path = Path(resolved)
-    if not any(_same_existing_path(resolved_path, path) for path in installed):
-        expected = _format_paths(installed)
-        raise GlobalCliError(f"global install failed: PATH resolves {resolved_path}; expected {expected}")
-    return resolved_path
+    root = source_project_root(project_root)
+    run_bootstrap(root, bootstrap_environment("uninstall", root))
 
 
-def verify_uninstalled() -> None:
-    """Raise when user-script files remain after uninstall."""
+def bootstrap_environment(action: str, project_root: Path) -> dict[str, str]:
+    """Return bootstrap process environment for a source-tree action."""
 
-    scripts_dir = user_scripts_dir()
-    remaining = existing_console_scripts(scripts_dir)
-    if remaining:
-        raise GlobalCliError(f"global uninstall failed: remaining scripts: {_format_paths(remaining)}")
+    environment = dict(os.environ)
+    environment.update(
+        {
+            "JUSTDOCS_INSTALL_ACTION": action,
+            "JUSTDOCS_INSTALL_SPEC": str(project_root),
+            "JUSTDOCS_PYTHON": sys.executable,
+        },
+    )
+    return environment
 
 
-def run_pip(args: Sequence[str]) -> None:
-    """Run pip with the current interpreter."""
+def run_bootstrap(project_root: Path, environment: Mapping[str, str]) -> None:
+    """Run the platform bootstrap script from a source tree."""
 
-    command = [sys.executable, "-m", "pip", *args]
-    run_command(command, error_type=GlobalCliError)
+    script = project_root / ("install.ps1" if os.name == "nt" else "install.sh")
+    if not script.is_file():
+        raise GlobalCliError(f"bootstrap script missing: {script}")
+    if os.name == "nt":
+        command = (
+            "powershell.exe",
+            "-NoLogo",
+            "-NoProfile",
+            "-NonInteractive",
+            "-ExecutionPolicy",
+            "Bypass",
+            "-File",
+            str(script),
+        )
+    else:
+        command = ("sh", str(script))
+    run_command(command, cwd=project_root, env=environment, error_type=GlobalCliError)
+
+
+def installed_command_path(environment: Mapping[str, str]) -> Path:
+    """Return the bootstrap-managed command path."""
+
+    configured = environment.get("JUSTDOCS_INSTALL_ROOT")
+    if configured:
+        root = Path(configured).expanduser().resolve()
+    elif os.name == "nt":
+        local_app_data = environment.get("LOCALAPPDATA")
+        if not local_app_data:
+            raise GlobalCliError("LOCALAPPDATA missing: cannot resolve install root")
+        root = (Path(local_app_data) / PACKAGE_NAME).resolve()
+    else:
+        home = environment.get("HOME")
+        if not home:
+            raise GlobalCliError("HOME missing: cannot resolve install root")
+        root = (Path(home) / f".{PACKAGE_NAME}").resolve()
+    suffix = "justdocs.exe" if os.name == "nt" else "justdocs"
+    return root / "bin" / suffix
 
 
 def build_parser() -> argparse.ArgumentParser:
-    """Create the global console-script command parser."""
+    """Create the global command installer parser."""
 
     parser = argparse.ArgumentParser(prog="python -m justdocs.global_cli")
     subparsers = parser.add_subparsers(dest="command", required=True)
-    install_parser = subparsers.add_parser(
-        "install",
-        help="Install justdocs as a user-global console script.",
-    )
-    install_parser.add_argument("--project-root", default=".", help="Source project root path.")
-    subparsers.add_parser("uninstall", help="Remove the user-global console script.")
+    for command, help_text in (
+        ("install", "Install justdocs in an isolated global command environment."),
+        ("uninstall", "Remove the isolated global command environment."),
+    ):
+        command_parser = subparsers.add_parser(command, help=help_text)
+        command_parser.add_argument(
+            "--project-root", default=".", help="Source project root path."
+        )
     return parser
 
 
 def main(argv: Sequence[str] | None = None) -> int:
-    """Run the global console-script command interface."""
+    """Run the global command installer interface."""
 
     parser = build_parser()
     args = parser.parse_args(argv)
     try:
         if args.command == "install":
-            command_path = install(Path(args.project_root))
-            print(f"installed {command_path}")
+            install(Path(args.project_root))
             return 0
         if args.command == "uninstall":
-            uninstall()
-            print(f"uninstalled {PACKAGE_NAME}")
+            uninstall(Path(args.project_root))
             return 0
     except GlobalCliError as error:
         parser.exit(1, f"{error}\n")
@@ -136,26 +122,13 @@ def main(argv: Sequence[str] | None = None) -> int:
     return 2
 
 
-def _source_project_root(project_root: Path) -> Path:
+def source_project_root(project_root: Path) -> Path:
+    """Return a validated source project root."""
+
     root = project_root.resolve()
     if not (root / "pyproject.toml").is_file():
         raise GlobalCliError(f"project root missing pyproject.toml: {root}")
     return root
-
-
-def _same_existing_path(left: Path, right: Path) -> bool:
-    try:
-        return left.samefile(right)
-    except OSError:
-        return _normalized_path(left) == _normalized_path(right)
-
-
-def _normalized_path(path: Path) -> str:
-    return os.path.normcase(os.path.abspath(path))
-
-
-def _format_paths(paths: Sequence[Path]) -> str:
-    return ", ".join(str(path) for path in paths)
 
 
 if __name__ == "__main__":

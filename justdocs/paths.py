@@ -39,7 +39,9 @@ REQUIRED_TEMPLATE_FILES = ("project.Justfile",)
 def theme_dir() -> Path:
     """Return the absolute MkDocs theme package path."""
 
-    missing = [path for path in REQUIRED_THEME_FILES if not (THEME_DIR / path).is_file()]
+    missing = [
+        path for path in REQUIRED_THEME_FILES if not (THEME_DIR / path).is_file()
+    ]
     if missing:
         joined = ", ".join(missing)
         raise ThemeAssetError(f"justdocs theme incomplete: missing {joined}")
@@ -49,7 +51,9 @@ def theme_dir() -> Path:
 def project_justfile_template() -> Path:
     """Return the absolute project Justfile template path."""
 
-    missing = [path for path in REQUIRED_TEMPLATE_FILES if not (TEMPLATE_DIR / path).is_file()]
+    missing = [
+        path for path in REQUIRED_TEMPLATE_FILES if not (TEMPLATE_DIR / path).is_file()
+    ]
     if missing:
         joined = ", ".join(missing)
         raise TemplateAssetError(f"justdocs templates incomplete: missing {joined}")

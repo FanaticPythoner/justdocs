@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import posixpath
 import re
+from collections.abc import Mapping
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Iterable
@@ -145,7 +146,9 @@ def _candidate_targets(markdown: str, src_path: str) -> Iterable[LinkTarget]:
     yield from _heading_targets(markdown, src_path)
 
 
-def _dedupe_targets(targets: Iterable[LinkTarget], min_phrase_chars: int) -> tuple[LinkTarget, ...]:
+def _dedupe_targets(
+    targets: Iterable[LinkTarget], min_phrase_chars: int
+) -> tuple[LinkTarget, ...]:
     by_key: dict[str, LinkTarget] = {}
     ambiguous: set[str] = set()
     for target in targets:
@@ -164,7 +167,11 @@ def _dedupe_targets(targets: Iterable[LinkTarget], min_phrase_chars: int) -> tup
     return tuple(
         sorted(
             (target for key, target in by_key.items() if key not in ambiguous),
-            key=lambda target: (-len(target.phrase), target.phrase.casefold(), target.url),
+            key=lambda target: (
+                -len(target.phrase),
+                target.phrase.casefold(),
+                target.url,
+            ),
         ),
     )
 
@@ -189,14 +196,18 @@ def _compile_targets(targets: Iterable[LinkTarget]) -> CompiledLinkGraph:
     )
     targets_by_key = {target.key: target.target for target in compiled}
     pattern = (
-        re.compile("|".join(f"(?:{target.pattern_text})" for target in compiled), re.IGNORECASE)
+        re.compile(
+            "|".join(f"(?:{target.pattern_text})" for target in compiled), re.IGNORECASE
+        )
         if compiled
         else None
     )
     return CompiledLinkGraph(compiled, targets_by_key, pattern)
 
 
-def _protected_ranges(markdown: str, include_inline_code: bool = True) -> tuple[tuple[int, int], ...]:
+def _protected_ranges(
+    markdown: str, include_inline_code: bool = True
+) -> tuple[tuple[int, int], ...]:
     ranges: list[tuple[int, int]] = []
     patterns = [
         FENCE_PATTERN,
@@ -210,7 +221,9 @@ def _protected_ranges(markdown: str, include_inline_code: bool = True) -> tuple[
         patterns.append(INLINE_CODE_PATTERN)
 
     for pattern in patterns:
-        ranges.extend((match.start(), match.end()) for match in pattern.finditer(markdown))
+        ranges.extend(
+            (match.start(), match.end()) for match in pattern.finditer(markdown)
+        )
     return _merge_ranges(ranges)
 
 
@@ -233,7 +246,9 @@ def _merge_ranges(ranges: Iterable[tuple[int, int]]) -> tuple[tuple[int, int], .
 
 def _relative_url(current_url: str, target_url: str) -> str:
     target_path, separator, fragment = target_url.partition("#")
-    current_base = current_url if current_url.endswith("/") else posixpath.dirname(current_url)
+    current_base = (
+        current_url if current_url.endswith("/") else posixpath.dirname(current_url)
+    )
     current_base = current_base or "."
     target_for_relpath = target_path.rstrip("/") or "."
     relative = posixpath.relpath(target_for_relpath, current_base)
@@ -379,7 +394,9 @@ def _smart_link_markdown(
     max_links_per_page: int,
     max_links_per_target: int = 2,
 ) -> str:
-    compiled_targets = targets if isinstance(targets, CompiledLinkGraph) else _compile_targets(targets)
+    compiled_targets = (
+        targets if isinstance(targets, CompiledLinkGraph) else _compile_targets(targets)
+    )
     link_counts: dict[str, int] = {}
     markdown, linked = _link_inline_code_refs(
         markdown,
@@ -428,6 +445,17 @@ def _smart_link_markdown(
     return "".join(output)
 
 
+def _validate_linker_limits(config: Mapping[str, object]) -> None:
+    """Validate positive smart-link bounds."""
+
+    for name in ("min_phrase_chars", "max_links_per_page", "max_links_per_target"):
+        value = config[name]
+        if not isinstance(value, int) or isinstance(value, bool) or value < 1:
+            raise JustdocsLinkerError(
+                f"invalid {name} {value}: expected an integer greater than zero"
+            )
+
+
 class JustdocsLinkerPlugin(BasePlugin):
     """Insert deterministic cross-page links before Markdown rendering."""
 
@@ -441,6 +469,10 @@ class JustdocsLinkerPlugin(BasePlugin):
     def __init__(self) -> None:
         self._link_graph = _compile_targets(())
 
+    def on_config(self, config):
+        _validate_linker_limits(self.config)
+        return config
+
     def on_files(self, files, config):
         if not self.config["enabled"]:
             self._link_graph = _compile_targets(())
@@ -449,11 +481,15 @@ class JustdocsLinkerPlugin(BasePlugin):
         candidates: list[LinkTarget] = []
         for file in files.documentation_pages():
             if not file.abs_src_path:
-                raise JustdocsLinkerError(f"documentation page missing source path: {file.src_path}")
+                raise JustdocsLinkerError(
+                    f"documentation page missing source path: {file.src_path}"
+                )
             markdown = Path(file.abs_src_path).read_text(encoding="utf-8")
             candidates.extend(_candidate_targets(markdown, file.src_path))
 
-        self._link_graph = _compile_targets(_dedupe_targets(candidates, self.config["min_phrase_chars"]))
+        self._link_graph = _compile_targets(
+            _dedupe_targets(candidates, self.config["min_phrase_chars"])
+        )
         return files
 
     def on_page_markdown(self, markdown, page, config, files):

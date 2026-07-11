@@ -56,7 +56,6 @@ jobs:
     uses: ./.github/workflows/reusable-build-python-package.yml
     with:
       ref: ${{ needs.preflight.outputs.release_ref }}
-    secrets: inherit
 
   github-release:
     needs:
@@ -79,6 +78,16 @@ jobs:
           pattern: python-dist
           path: artifacts/release
           merge-multiple: true
+
+      - name: Set up release tooling
+        uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+          check-latest: true
+          cache: pip
+
+      - name: Install release tooling
+        run: python -m pip install 'packaging>=24'
 
       - name: Write release notes
         run: |

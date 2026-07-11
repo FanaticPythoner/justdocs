@@ -46,7 +46,9 @@ jobs:
           INPUT_TAG: ${{ inputs.tag }}
           REF_NAME: ${{ github.ref_name }}
           REF_TYPE: ${{ github.ref_type }}
-        run: bash scripts/release/resolve-release-metadata.sh
+        run: |
+          python -m pip install 'packaging>=24'
+          bash scripts/release/resolve-release-metadata.sh
 
       - name: Install package
         run: |
@@ -61,8 +63,6 @@ jobs:
     uses: ./.github/workflows/reusable-build-python-package.yml
     with:
       ref: ${{ needs.preflight.outputs.release_ref }}
-      release_tag: ${{ needs.preflight.outputs.tag }}
-    secrets: inherit
 
   publish:
     needs:
@@ -101,14 +101,21 @@ jobs:
         id: pypi_gate
         env:
           PYPI_API_TOKEN: ${{ secrets.PYPI_API_TOKEN }}
+          PYPI_TRUSTED_PUBLISHING: ${{ vars.PYPI_TRUSTED_PUBLISHING }}
         run: |
           set -euo pipefail
-          if [[ -n "${PYPI_API_TOKEN:-}" ]]; then
+          if [[ "${PYPI_TRUSTED_PUBLISHING,,}" == "true" ]]; then
             echo 'publish=true' >> "$GITHUB_OUTPUT"
             echo 'published=true' >> "$GITHUB_OUTPUT"
+            echo 'mode=trusted' >> "$GITHUB_OUTPUT"
+          elif [[ -n "${PYPI_API_TOKEN:-}" ]]; then
+            echo 'publish=true' >> "$GITHUB_OUTPUT"
+            echo 'published=true' >> "$GITHUB_OUTPUT"
+            echo 'mode=token' >> "$GITHUB_OUTPUT"
           else
             echo 'publish=false' >> "$GITHUB_OUTPUT"
             echo 'published=false' >> "$GITHUB_OUTPUT"
+            echo 'mode=none' >> "$GITHUB_OUTPUT"
           fi
 
       - name: Stage PyPI distributions
@@ -116,15 +123,20 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p artifacts/pypi
-          find artifacts/release -maxdepth 1 -type f \( -name '*.whl' -o -name '*.tar.gz' \) -exec cp {} artifacts/pypi/ \;
-          count="$(find artifacts/pypi -maxdepth 1 -type f | wc -l)"
-          if [[ "$count" -eq 0 ]]; then
-            echo 'No Python distribution artifacts found for PyPI.' >&2
-            exit 1
-          fi
+          source scripts/release/release-artifacts.sh
+          mapfile -t distributions < <(release_artifact_files artifacts/release)
+          cp "${distributions[@]}" artifacts/pypi/
 
-      - name: Publish to PyPI
-        if: ${{ steps.pypi_gate.outputs.publish == 'true' }}
+      - name: Publish to PyPI with trusted publishing
+        if: ${{ steps.pypi_gate.outputs.mode == 'trusted' }}
+        uses: pypa/gh-action-pypi-publish@release/v1
+        with:
+          packages-dir: artifacts/pypi
+          skip-existing: false
+          print-hash: true
+
+      - name: Publish to PyPI with API token
+        if: ${{ steps.pypi_gate.outputs.mode == 'token' }}
         uses: pypa/gh-action-pypi-publish@release/v1
         with:
           user: __token__
@@ -132,6 +144,7 @@ jobs:
           packages-dir: artifacts/pypi
           skip-existing: false
           print-hash: true
+          attestations: false
 
       - name: Attest build provenance
         uses: actions/attest-build-provenance@v2
@@ -146,6 +159,7 @@ jobs:
           {
             echo '## Registry publication'
             echo "- PyPI: ${{ steps.pypi_gate.outputs.published }}"
+            echo "- Authentication: ${{ steps.pypi_gate.outputs.mode }}"
           } >> "$GITHUB_STEP_SUMMARY"
 
   github-release:
@@ -169,6 +183,16 @@ jobs:
           pattern: python-dist
           path: artifacts/release
           merge-multiple: true
+
+      - name: Set up release tooling
+        uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+          check-latest: true
+          cache: pip
+
+      - name: Install release tooling
+        run: python -m pip install 'packaging>=24'
 
       - name: Write release notes
         run: |

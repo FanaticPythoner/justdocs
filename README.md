@@ -5,9 +5,9 @@ deterministic cross-page linker.
 
 | Surface | Contract |
 | --- | --- |
-| Package | `justdocs` version `0.1.0` |
+| Package | `justdocs` |
 | Python | `>=3.10` |
-| Runtime dependency | `mkdocs>=1.6,<3`, `packaging>=24,<26` |
+| Runtime dependency | `mkdocs>=1.6,<3`, `packaging>=24` |
 | Console script | `justdocs = justdocs.cli:main` |
 | Theme entry point | `justdocs = justdocs.theme` |
 | Plugin entry point | `justdocs-linker = justdocs.plugins:JustdocsLinkerPlugin` |
@@ -175,23 +175,22 @@ extra:
 
 ```bash
 justdocs theme-dir
-justdocs init --root docs-project --mkdocs-config mkdocs.yml --addr 127.0.0.1:8000
-justdocs project init --root docs-project --mkdocs-config mkdocs.yml --addr 127.0.0.1:8000
-justdocs project install --root docs-project
-justdocs project check --root docs-project
-justdocs version --check
-justdocs self check-update
-justdocs self update
+justdocs projects init --root docs-project --mkdocs-config mkdocs.yml --addr 127.0.0.1:8000
+justdocs projects install --root docs-project
+justdocs projects check --root docs-project
+justdocs version
+justdocs check-update
+justdocs update
 ```
 
 ## Bootstrap Installers
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/FanaticPythoner/justdocs/main/install.sh | sh
+curl -fsSL https://github.com/FanaticPythoner/justdocs/releases/latest/download/install.sh | sh
 ```
 
 ```powershell
-irm https://raw.githubusercontent.com/FanaticPythoner/justdocs/main/install.ps1 | iex
+irm https://github.com/FanaticPythoner/justdocs/releases/latest/download/install.ps1 | iex
 ```
 
 | Variable | Default | Contract |
@@ -199,42 +198,56 @@ irm https://raw.githubusercontent.com/FanaticPythoner/justdocs/main/install.ps1 
 | `JUSTDOCS_PYTHON` | Platform Python launcher search order | Python executable used for the install. |
 | `JUSTDOCS_INSTALL_SOURCE` | `github` | Install source: `github`, `pypi`, or `url`. |
 | `JUSTDOCS_INSTALL_VERSION` | Empty | Exact PyPI version for `justdocs==<version>`. |
-| `JUSTDOCS_INSTALL_REF` | `main` | GitHub branch, tag, or commit archive reference. |
+| `JUSTDOCS_INSTALL_REF` | Latest release tag | Explicit GitHub branch, tag, or commit archive reference. |
 | `JUSTDOCS_INSTALL_SPEC` | Empty | Full pip requirement override. |
 | `JUSTDOCS_INSTALL_URL` | Empty | Package URL used when `JUSTDOCS_INSTALL_SOURCE=url`. |
-| `JUSTDOCS_INSTALL_DRY_RUN` | `0` | Print the resolved pip install command and exit. |
+| `JUSTDOCS_INSTALL_ACTION` | `install` | Bootstrap action: `install` or `uninstall`. |
+| `JUSTDOCS_INSTALL_ROOT` | `~/.justdocs` on POSIX; `%LOCALAPPDATA%\justdocs` on Windows | Isolated application environment and command directory. |
+| `JUSTDOCS_MODIFY_PATH` | `1` | Add or remove the managed command directory from shell or user PATH configuration. |
+| `JUSTDOCS_SHELL_PROFILE` | Detected POSIX shell profile | Explicit POSIX profile path for the managed PATH block. |
+| `JUSTDOCS_INSTALL_DRY_RUN` | `0` | Print resolved filesystem, pip, and PATH actions without mutation. |
+| `JUSTDOCS_INSTALL_TIMEOUT` | `10` | Positive finite GitHub release lookup timeout in seconds. |
 | `JUSTDOCS_REPOSITORY` | `FanaticPythoner/justdocs` | GitHub repository used by `JUSTDOCS_INSTALL_SOURCE=github`. |
 
-The installers run `python -m pip install --user --upgrade` and verify that
-`justdocs` resolves from the selected interpreter's user script directory.
-Missing `PATH` entries and conflicting `justdocs` commands are fatal.
+The installers create a dedicated virtualenv, install the latest stable GitHub
+release wheel without a repository clone, expose its console script under the
+managed `bin` directory, configure PATH idempotently, and execute
+`justdocs version` as verification. An explicit `JUSTDOCS_INSTALL_REF` selects
+the corresponding branch, tag, or commit archive instead.
+
+```bash
+curl -fsSL https://github.com/FanaticPythoner/justdocs/releases/latest/download/install.sh | JUSTDOCS_INSTALL_ACTION=uninstall sh
+```
+
+```powershell
+$env:JUSTDOCS_INSTALL_ACTION='uninstall'; irm https://github.com/FanaticPythoner/justdocs/releases/latest/download/install.ps1 | iex
+```
 
 | Command | Contract |
 | --- | --- |
 | `justdocs` | Print command help plus common project and update commands. |
 | `justdocs theme-dir` | Validate required theme assets and print the absolute theme package path. |
 | `justdocs version` | Print installed package version. |
-| `justdocs version --check` | Print current version and newest available PyPI or GitHub release version. |
-| `justdocs init` | Write a project-local `Justfile` and print its absolute path. |
-| `justdocs project init` | Namespaced alias for `justdocs init`. |
-| `justdocs projects init` | Plural alias for `justdocs project init`. |
-| `justdocs project install` | Run the generated project `install` recipe without invoking `just`. |
-| `justdocs project check` | Run the generated project `check` recipe without invoking `just`. |
-| `justdocs project build` | Alias for `justdocs project check`. |
-| `justdocs project serve` | Run the generated project `serve` recipe without invoking `just`. |
-| `justdocs project serve-clean` | Run `free-port`, then `serve`, without invoking `just`. |
-| `justdocs project free-port` | Terminate local listeners on the configured port. |
-| `justdocs project clean` | Remove MkDocs output and cache directories. |
-| `justdocs project dist-clean` | Run `clean`, then remove the configured virtualenv. |
-| `justdocs self check-update` | Query PyPI JSON and GitHub Releases metadata for newer versions. |
-| `justdocs self update` | Upgrade the installed package from PyPI or a GitHub release tag. |
+| `justdocs projects init` | Write a project-local `Justfile` and print its absolute path. |
+| `justdocs projects install` | Run the generated project `install` recipe without invoking `just`. |
+| `justdocs projects check` | Run the generated project `check` recipe without invoking `just`. |
+| `justdocs projects build` | Run the project check contract. |
+| `justdocs projects serve` | Run the generated project `serve` recipe without invoking `just`. |
+| `justdocs projects serve-clean` | Run `free-port`, then `serve`, without invoking `just`. |
+| `justdocs projects free-port` | Terminate local listeners on the configured port. |
+| `justdocs projects clean` | Remove MkDocs output and cache directories. |
+| `justdocs projects dist-clean` | Run `clean`, then remove the configured virtualenv. |
+| `justdocs check-update` | Query PyPI JSON and GitHub Releases metadata for newer versions. |
+| `justdocs update` | Install the newest PyPI or GitHub release; return without reinstalling when current. |
 
-| `justdocs init` option | Default | Contract |
+| `justdocs projects init` option | Default | Contract |
 | --- | --- | --- |
 | `--root` | `.` | Project root receiving `Justfile`; parent directories are created. |
 | `--mkdocs-config` | `mkdocs.yml` | Project-local MkDocs config path for generated recipes. |
 | `--addr` | `127.0.0.1:8000` | MkDocs serve bind address for generated recipes. |
 | `--package` | `justdocs` | Wheel, version, or source path used by generated `just install`. |
+| `--extra-packages` | `pymdown-extensions==10.12` | Additional package requirements installed with Justdocs. |
+| `--venv` | `.venv` | Project-local virtualenv directory. |
 | `--force` | `false` | Existing project `Justfile` overwrite gate. |
 
 | Error class | Trigger |
@@ -242,19 +255,21 @@ Missing `PATH` entries and conflicting `justdocs` commands are fatal.
 | `ThemeAssetError` | Required theme asset is absent. |
 | `TemplateAssetError` | Required project template asset is absent. |
 | `ProjectJustfileExistsError` | Target `Justfile` exists and `--force` is absent. |
-| `ProjectJustfileInvalidPackageError` | Package spec is empty, invalid for shell splitting, or contains editable install flags. |
+| `ProjectJustfileInvalidPackageError` | Package spec is empty, invalid for shell splitting, or contains a pip option. |
+| `ProjectJustfileWriteError` | Project root or atomic `Justfile` replacement fails. |
 | `ProjectRecipeError` | Project recipe execution invariant fails. |
 | `GlobalCliError` | Global console-script install or uninstall invariant fails. |
-| `UpdateCheckError` | PyPI or GitHub update metadata is absent, malformed, or unreachable. |
+| `UpdateCheckError` | PyPI or GitHub metadata is malformed, unreachable, or unsupported. |
+| `UpdateSourceEmpty` | PyPI project or GitHub release endpoint has no published release. |
 | `UpdateInstallError` | Package update installation command exits non-zero. |
 
 ## Generated Project Recipes
 
 | Recipe | Contract |
 | --- | --- |
-| `just install` | Create project `.venv`, upgrade pip, install package spec, and install extra packages. |
+| `just install` | Delegate dependency installation to `justdocs projects install` with stored configuration. |
 | `just check` | Run `mkdocs build -f <config> --strict --clean`. |
-| `just build` | Alias for `check`. |
+| `just build` | Delegate to `justdocs projects build`. |
 | `just serve` | Run `mkdocs serve -f <config> -a <addr>`. |
 | `just serve-clean` | Free the configured port, then serve. |
 | `just free-port` | Kill local processes bound to the configured port. |
@@ -263,36 +278,33 @@ Missing `PATH` entries and conflicting `justdocs` commands are fatal.
 
 | Environment variable | Default | Contract |
 | --- | --- | --- |
-| `JUSTDOCS_PYTHON` | `python3` | Python executable used to create the project virtualenv. |
-| `JUSTDOCS_CONFIG` | Generator `--mkdocs-config` | MkDocs config path. |
-| `JUSTDOCS_ADDR` | Generator `--addr` | MkDocs serve bind address. |
-| `JUSTDOCS_PORT` | Port segment from `--addr` | Port passed to `lsof -t -i`. |
-| `JUSTDOCS_PACKAGE` | Generator `--package` | Package spec passed to pip after validation. |
-| `JUSTDOCS_EXTRA_PACKAGES` | `pymdown-extensions==10.12` | Extra pip packages installed with the theme. |
-| `JUSTDOCS_VENV` | `.venv` | Virtualenv directory. |
-| `JUSTDOCS_VENV_PYTHON` | `.venv/bin/python` | Virtualenv Python executable. |
-| `JUSTDOCS_VENV_MKDOCS` | `.venv/bin/mkdocs` | Virtualenv MkDocs executable. |
+| `JUSTDOCS_PYTHON` | Current CLI interpreter | Python executable used to create the project virtualenv. |
+| `JUSTDOCS_CONFIG` | Stored `mkdocs_config` | MkDocs config path. |
+| `JUSTDOCS_ADDR` | Stored `addr` | MkDocs serve bind address. |
+| `JUSTDOCS_PORT` | Port segment from the effective address | Explicit port for `free-port` and `serve-clean`. |
+| `JUSTDOCS_PACKAGE` | Stored `package` | Package spec passed to pip after validation. |
+| `JUSTDOCS_EXTRA_PACKAGES` | Stored `extra_packages` | Extra pip packages installed with the theme. |
+| `JUSTDOCS_VENV` | Stored `venv` | Virtualenv directory. |
 
-Local source package installs are serialized by `flock` with lock files under
-`${TMPDIR:-/tmp}/justdocs-install-locks`. Editable installs are rejected by the
-generator and by generated recipes.
+The first generated Justfile line stores a bounded, versioned JSON configuration
+record. Generated recipes and direct CLI commands read that record before
+delegating behavior to `justdocs projects`. Configured virtualenv paths must be
+strict descendants of the project root.
 
-CLI project recipes use the current Python interpreter by default and mirror
-generated project recipe contracts. `--root`, `--mkdocs-config`, `--addr`,
-`--port`, `--package`, `--extra-packages`, `--venv`, and `--python` override
-the corresponding `JUSTDOCS_*` environment values.
+Project setting precedence is explicit CLI option, `JUSTDOCS_*` environment
+value, generated Justfile record, then package default. `--root`,
+`--mkdocs-config`, `--addr`, `--port`, `--package`, `--extra-packages`,
+`--venv`, and `--python` use this contract.
 
 ## Source Recipes
 
 | Recipe | Contract |
 | --- | --- |
 | `just install` | Create source `.venv` and install the local package plus `pymdown-extensions==10.12`. |
-| `just global-install` | Install the source package into the selected Python user site and verify `justdocs` resolves on `PATH`. |
-| `just install-global` | Alias for `global-install`. |
-| `just global-uninstall` | Remove `justdocs` from the selected Python environment and verify user-script files are absent. |
-| `just uninstall-global` | Alias for `global-uninstall`. |
+| `just global-install` | Install the source package into the isolated global command environment. |
+| `just global-uninstall` | Remove the isolated global command environment and managed PATH entry. |
 | `just theme-dir` | Print the absolute theme package path with `PYTHONPATH=.`. |
-| `just example-justfile` | Regenerate `examples/basic/Justfile` through `justdocs init`. |
+| `just example-justfile` | Regenerate `examples/basic/Justfile` through `justdocs projects init`. |
 | `just test` | Install the source virtualenv and run package tests through `.venv`. |
 | `just dist` | Build sdist, wheel, Twine validation, and `SHA256SUMS.txt` through the release build script. |
 | `just example-build` | Run the generated example project `check` recipe. |
@@ -301,21 +313,23 @@ the corresponding `JUSTDOCS_*` environment values.
 
 | Source environment variable | Default | Contract |
 | --- | --- | --- |
-| `JUSTDOCS_GLOBAL_PYTHON` | `JUSTDOCS_PYTHON` or `python3` | Python executable used by source global install and uninstall recipes. |
+| `JUSTDOCS_GLOBAL_PYTHON` | `JUSTDOCS_PYTHON` or platform Python | Python executable used by source global install and uninstall recipes. |
 
-Global installs use the current interpreter's user script directory from
-`sysconfig`. `global install failed` reports a missing console script, missing
-`PATH` entry, or an existing `justdocs` command from a different location.
+Source global recipes delegate to the same platform bootstrap scripts used by
+the no-clone install path. Bootstrap locking serializes mutations per install
+root, and uninstall refuses to remove an unowned command.
 
 ## Updates And Releases
 
 | Surface | Contract |
 | --- | --- |
-| `justdocs self check-update` | Compare installed version with PyPI JSON and GitHub latest release metadata. |
-| `justdocs self update --source pypi` | Run `python -m pip install --upgrade justdocs==<version>`. |
-| `justdocs self update --source github` | Run `python -m pip install --upgrade justdocs @ git+https://github.com/<owner>/<repo>.git@v<version>`. |
-| `UpdateCheckError` | Metadata source failure, malformed JSON, unsupported source, or unsupported version. |
-| `UpdateInstallError` | Pip update command failure. |
+| `justdocs check-update` | Compare installed version with PyPI JSON and GitHub latest release metadata. |
+| `justdocs update` | Select the newest published candidate across PyPI and GitHub. |
+| `justdocs update --source pypi` | Run `python -m pip install --upgrade justdocs==<version>`. |
+| `justdocs update --source github` | Install the exact version-matched GitHub release wheel without invoking Git. |
+| `UpdateCheckError` | Transport failure, malformed JSON, unsupported source, or unsupported version. |
+| `UpdateSourceEmpty` | HTTP 404 publication state; reported as a warning when all enabled sources are unpublished. |
+| `UpdateInstallError` | Downgrade request, ambiguous explicit source, or pip command failure. |
 
 | Release surface | Contract |
 | --- | --- |
@@ -324,8 +338,9 @@ Global installs use the current interpreter's user script directory from
 | `.github/workflows/ci.yml` | Python `3.10` through `3.14`, `3.13t`, `3.14t`, macOS, Windows, and distribution build. |
 | `.github/workflows/release.yml` | Tag release pipeline with tests, build, PyPI publish gate, GitHub release assets, and PyPI visibility check. |
 | `.github/workflows/latest.yml` | Moving `latest` prerelease assets for `main`. |
-| `install.sh` and `install.ps1` | GitHub release assets plus raw-repository bootstrap installers. |
-| `pypa/gh-action-pypi-publish` | PyPI upload action used when `PYPI_API_TOKEN` is present. |
+| `install.sh` and `install.ps1` | Latest GitHub release bootstrap assets. |
+| `pypa/gh-action-pypi-publish` | PyPI upload action using trusted publishing or `PYPI_API_TOKEN`. |
+| `PYPI_TRUSTED_PUBLISHING` | Repository variable set to `true` after the `release` environment is registered as a PyPI trusted publisher. |
 
 ## Smart Links
 
