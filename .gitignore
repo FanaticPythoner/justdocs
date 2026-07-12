@@ -219,6 +219,5 @@ __marimo__/
 examples/**/site/
 artifacts/release/
 artifacts/release-notes.md
-TODOS_LISTS/*
-!TODOS_LISTS/
-!TODOS_LISTS/AUDIT-*.md
+TODOS_LISTS/
+.tmp-workflow-tools/

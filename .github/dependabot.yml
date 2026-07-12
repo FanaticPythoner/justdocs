@@ -15,3 +15,7 @@ updates:
     target-branch: main
     labels:
       - dependencies
+    groups:
+      github-actions:
+        patterns:
+          - "*"

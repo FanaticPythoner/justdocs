@@ -107,7 +107,7 @@ fi
       remainder="${remainder#*$'\x1f'}"
       subject="${remainder%%$'\x1f'*}"
       body="${remainder#*$'\x1f'}"
-      printf -- '- [`%s`](%s/commit/%s) %s\n' "$short_sha" "$repository_url" "$full_sha" "$subject"
+      printf -- "- [\`%s\`](%s/commit/%s) %s\n" "$short_sha" "$repository_url" "$full_sha" "$subject"
       if [[ -n "$body" ]]; then
         while IFS= read -r body_line; do
           printf '  > %s\n' "$body_line"

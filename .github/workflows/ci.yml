@@ -57,7 +57,7 @@ jobs:
 
     steps:
       - name: Check out repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
         with:
           fetch-depth: 0
 
@@ -88,8 +88,25 @@ jobs:
 
       - name: Upload distributions
         if: matrix.build-dist
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: justdocs-python-dist
           path: ${{ steps.dist.outputs.dist_dir }}/*
           if-no-files-found: error
+          archive: true
+
+  artifact-roundtrip:
+    needs: test-build
+    runs-on: ubuntu-24.04
+
+    steps:
+      - name: Download distributions
+        uses: actions/download-artifact@v8
+        with:
+          name: justdocs-python-dist
+          path: artifacts/release
+          digest-mismatch: error
+
+      - name: Verify artifact checksums
+        working-directory: artifacts/release
+        run: sha256sum --check SHA256SUMS.txt

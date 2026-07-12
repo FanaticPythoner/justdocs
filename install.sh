@@ -21,7 +21,7 @@ command_path=$bin_dir/justdocs
 managed_file=$install_root/.justdocs-managed
 lock_dir=$install_root.install-lock
 profile=${JUSTDOCS_SHELL_PROFILE:-}
-profile_kind=sh
+profile_kind='sh'
 path_start='# >>> justdocs PATH >>>'
 path_end='# <<< justdocs PATH <<<'
 

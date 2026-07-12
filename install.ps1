@@ -330,7 +330,7 @@ function Uninstall-Justdocs {
     Write-Output "uninstalled $Package"
 }
 
-$script:PythonCommand = Resolve-JustdocsPython
+$script:PythonCommand = @(Resolve-JustdocsPython)
 $script:Lock = $null
 Assert-JustdocsBoolean 'JUSTDOCS_INSTALL_DRY_RUN' $DryRun
 Assert-JustdocsBoolean 'JUSTDOCS_MODIFY_PATH' $ModifyPath
