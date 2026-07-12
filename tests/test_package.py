@@ -7,7 +7,6 @@ import os
 import subprocess
 import sys
 import unittest
-from collections import Counter
 from contextlib import nullcontext, redirect_stderr, redirect_stdout
 from io import StringIO
 from pathlib import Path
@@ -595,10 +594,7 @@ def transactional_release_environment(
 
 
 def release_transaction_calls(path: Path) -> list[list[str]]:
-    return [
-        json.loads(line)
-        for line in path.read_text(encoding="utf-8").splitlines()
-    ]
+    return [json.loads(line) for line in path.read_text(encoding="utf-8").splitlines()]
 
 
 def release_transaction_mutations(calls: list[list[str]]) -> list[list[str]]:
@@ -607,11 +603,7 @@ def release_transaction_mutations(calls: list[list[str]]) -> list[list[str]]:
         for call in calls
         if call[:2] != ["api", "graphql"]
         and call[:3] != ["api", "--paginate", "--slurp"]
-        and not (
-            call[:1] == ["api"]
-            and "/commits/" in call[-1]
-            and "-X" not in call
-        )
+        and not (call[:1] == ["api"] and "/commits/" in call[-1] and "-X" not in call)
     ]
 
 
@@ -1391,12 +1383,40 @@ class ThemePackageTest(unittest.TestCase):
         dependabot = Path(".github/dependabot.yml").read_text(encoding="utf-8")
         pyproject = Path("pyproject.toml").read_text(encoding="utf-8")
         workflows = "\n".join((ci, latest, release, reusable, security))
-        action_sources = "\n".join((workflows, build_action, release_action))
-        action_refs = Counter(
-            line.split("uses:", 1)[1].strip()
-            for line in action_sources.splitlines()
-            if line.lstrip().startswith("uses: ")
-        )
+        action_sources = {
+            "ci": ci,
+            "latest": latest,
+            "release": release,
+            "reusable": reusable,
+            "security": security,
+            "build-action": build_action,
+            "release-action": release_action,
+        }
+        action_refs = {
+            source_name: {
+                line.split("uses:", 1)[1].strip()
+                for line in source.splitlines()
+                if line.lstrip().startswith("uses: ")
+            }
+            for source_name, source in action_sources.items()
+        }
+
+        def workflow_steps(source: str) -> tuple[str, ...]:
+            lines = source.splitlines()
+            steps: list[str] = []
+            for start, line in enumerate(lines):
+                if not line.startswith("      - "):
+                    continue
+                end = start + 1
+                while end < len(lines):
+                    candidate = lines[end]
+                    indentation = len(candidate) - len(candidate.lstrip())
+                    if candidate.strip() and indentation <= 6:
+                        break
+                    end += 1
+                steps.append("\n".join(lines[start:end]))
+            return tuple(steps)
+
         self.assertIn("pypa/gh-action-pypi-publish@release/v1", release)
         self.assertIn("PYPI_API_TOKEN", release)
         self.assertIn("PYPI_TRUSTED_PUBLISHING", release)
@@ -1412,27 +1432,83 @@ class ThemePackageTest(unittest.TestCase):
         self.assertIn("os: windows-2025", ci)
         self.assertIn("actions/setup-python@v6", ci)
         self.assertEqual(
-            Counter(
-                {
-                    "actions/checkout@v7": 10,
-                    "actions/setup-python@v6": 7,
-                    "actions/upload-artifact@v7": 2,
-                    "actions/download-artifact@v8": 4,
-                    "actions/dependency-review-action@v5": 1,
-                    "github/codeql-action/init@v4": 1,
-                    "github/codeql-action/analyze@v4": 1,
-                    "pypa/gh-action-pypi-publish@release/v1": 2,
-                    "actions/attest-build-provenance@v4": 1,
-                    "./.github/actions/build-dist": 2,
-                    "./.github/actions/release-assets": 2,
-                    "./.github/workflows/reusable-build-python-package.yml": 2,
-                }
-            ),
+            {
+                "ci": {
+                    "actions/checkout@v7",
+                    "actions/setup-python@v6",
+                    "actions/upload-artifact@v7",
+                    "actions/download-artifact@v8",
+                    "./.github/actions/build-dist",
+                },
+                "latest": {
+                    "actions/checkout@v7",
+                    "actions/setup-python@v6",
+                    "actions/download-artifact@v8",
+                    "./.github/actions/release-assets",
+                    "./.github/workflows/reusable-build-python-package.yml",
+                },
+                "release": {
+                    "actions/checkout@v7",
+                    "actions/setup-python@v6",
+                    "actions/download-artifact@v8",
+                    "pypa/gh-action-pypi-publish@release/v1",
+                    "actions/attest-build-provenance@v4",
+                    "./.github/actions/release-assets",
+                    "./.github/workflows/reusable-build-python-package.yml",
+                },
+                "reusable": {
+                    "actions/checkout@v7",
+                    "actions/upload-artifact@v7",
+                    "./.github/actions/build-dist",
+                },
+                "security": {
+                    "actions/checkout@v7",
+                    "actions/setup-python@v6",
+                    "github/codeql-action/init@v4",
+                    "github/codeql-action/analyze@v4",
+                },
+                "build-action": {"actions/setup-python@v6"},
+                "release-action": set(),
+            },
             action_refs,
         )
-        self.assertEqual(4, workflows.count("digest-mismatch: error"))
-        self.assertEqual(2, workflows.count("archive: true"))
-        self.assertEqual(4, workflows.count("name: python-dist"))
+        for workflow_name, workflow_source, artifact_name in (
+            ("ci", ci, "justdocs-python-dist"),
+            ("latest", latest, "python-dist"),
+            ("release", release, "python-dist"),
+        ):
+            download_steps = tuple(
+                step
+                for step in workflow_steps(workflow_source)
+                if "uses: actions/download-artifact@v8" in step
+            )
+            self.assertTrue(download_steps)
+            for step_index, step in enumerate(download_steps):
+                with self.subTest(
+                    workflow=workflow_name,
+                    step=step_index,
+                    contract="download-artifact",
+                ):
+                    self.assertIn("digest-mismatch: error", step)
+                    self.assertIn(f"name: {artifact_name}", step)
+        for workflow_name, workflow_source, artifact_name in (
+            ("ci", ci, "justdocs-python-dist"),
+            ("reusable", reusable, "python-dist"),
+        ):
+            upload_steps = tuple(
+                step
+                for step in workflow_steps(workflow_source)
+                if "uses: actions/upload-artifact@v7" in step
+            )
+            self.assertTrue(upload_steps)
+            for step_index, step in enumerate(upload_steps):
+                with self.subTest(
+                    workflow=workflow_name,
+                    step=step_index,
+                    contract="upload-artifact",
+                ):
+                    self.assertIn("archive: true", step)
+                    self.assertIn(f"name: {artifact_name}", step)
         self.assertNotIn("pattern: python-dist", workflows)
         self.assertNotIn("merge-multiple: true", workflows)
         self.assertIn("artifact-roundtrip:", ci)
@@ -1441,6 +1517,9 @@ class ThemePackageTest(unittest.TestCase):
         self.assertIn("package-ecosystem: github-actions", dependabot)
         self.assertIn("groups:\n      github-actions:\n        patterns:", dependabot)
         self.assertIn('- "*"', dependabot)
+        self.assertIn("pip-audit==2.10.1", security)
+        self.assertIn("python -m pip_audit --strict --progress-spinner=off .", security)
+        self.assertNotIn("actions/dependency-review-action", security)
         self.assertIn("uses: ./.github/actions/build-dist", ci)
         self.assertIn(
             "uses: ./.github/workflows/reusable-build-python-package.yml", release
@@ -1450,10 +1529,15 @@ class ThemePackageTest(unittest.TestCase):
         self.assertIn("uses: ./.github/actions/release-assets", release)
         self.assertIn("uses: ./.github/actions/release-assets", latest)
         self.assertIn(
-            "concurrency:\n  group: release-${{ inputs.tag || github.ref_name }}",
+            "concurrency:\n  group: release-${{ github.event_name == "
+            "'workflow_dispatch' && inputs.tag || github.ref_name }}\n"
+            "  cancel-in-progress: false",
             release,
         )
-        self.assertIn("concurrency:\n  group: latest-main", latest)
+        self.assertIn(
+            "concurrency:\n  group: latest-main\n  cancel-in-progress: false",
+            latest,
+        )
         self.assertIn("scripts/release/build-python-package.sh", build_action)
         self.assertIn("SHA256SUMS.txt", build_script)
         self.assertIn(
@@ -1471,9 +1555,7 @@ class ThemePackageTest(unittest.TestCase):
         self.assertNotIn("purge-github-release-assets.sh", release_action)
         self.assertNotIn("ensure-github-release.sh", release_action)
         self.assertEqual(4, release_action.count("stage-release-inputs.py"))
-        self.assertEqual(
-            4, release_action.count("transactional-github-release.py")
-        )
+        self.assertEqual(4, release_action.count("transactional-github-release.py"))
         self.assertIn(
             "- name: Cleanup release transaction\n      if: always()",
             release_action,
@@ -1497,8 +1579,7 @@ class ThemePackageTest(unittest.TestCase):
             'release_validate_boolean prerelease "$PRERELEASE"', release_action
         )
         self.assertIn(
-            'release_validate_boolean purge_existing_assets '
-            '"$PURGE_EXISTING_ASSETS"',
+            'release_validate_boolean purge_existing_assets "$PURGE_EXISTING_ASSETS"',
             release_action,
         )
         self.assertIn(
@@ -1508,18 +1589,14 @@ class ThemePackageTest(unittest.TestCase):
         self.assertNotIn("continue-on-error", release_action)
         for run_block in release_action.split("run: |")[1:]:
             with self.subTest(run_block=run_block[:80]):
-                self.assertNotIn(
-                    "${{ inputs.", run_block.split("\n    - name:", 1)[0]
-                )
+                self.assertNotIn("${{ inputs.", run_block.split("\n    - name:", 1)[0])
         for workflow_name, workflow_source in (
             ("release", release),
             ("latest", latest),
         ):
             for run_block in workflow_source.split("run: |")[1:]:
                 with self.subTest(workflow=workflow_name, run_block=run_block[:80]):
-                    self.assertNotIn(
-                        "${{", run_block.split("\n      - name:", 1)[0]
-                    )
+                    self.assertNotIn("${{", run_block.split("\n      - name:", 1)[0])
         self.assertIn("packaging>=24", pyproject)
         self.assertNotIn("packaging>=24,<", pyproject)
         self.assertIn('requires = ["setuptools==83.0.0"]', pyproject)
@@ -1609,9 +1686,7 @@ class ThemePackageTest(unittest.TestCase):
                     checker.publication_state("justdocs", "1.2.3", artifacts),
                 )
 
-            normalized_payload = exact_payload | {
-                "info": {"version": "1.2.3.0"}
-            }
+            normalized_payload = exact_payload | {"info": {"version": "1.2.3.0"}}
             with patch.object(
                 checker.urllib.request,
                 "urlopen",
@@ -1669,6 +1744,60 @@ class ThemePackageTest(unittest.TestCase):
                 ),
             ):
                 checker.publication_state("justdocs", "1.2.3", artifacts)
+
+            invalid_artifacts = root / "invalid-artifacts"
+            invalid_artifacts.mkdir()
+            (invalid_artifacts / "invalid.whl").mkdir()
+            with (
+                patch.object(checker.urllib.request, "urlopen") as remote_query,
+                self.assertRaisesRegex(
+                    checker.PyPIArtifactError,
+                    "invalid Python distribution artifact inventory",
+                ),
+            ):
+                checker.publication_state(
+                    "justdocs",
+                    "1.2.3",
+                    invalid_artifacts,
+                )
+            remote_query.assert_not_called()
+
+            if os.name == "nt":
+                renamed_wheel = wheel.with_suffix(".renamed.whl")
+                with checker._open_local_artifacts(artifacts):
+                    with self.assertRaises(OSError):
+                        wheel.write_bytes(b"mutated")
+                    with self.assertRaises(OSError):
+                        wheel.rename(renamed_wheel)
+                wheel.write_bytes(b"wheel")
+                artifacts_junction = root / "artifacts-junction"
+                junction = subprocess.run(
+                    (
+                        "cmd",
+                        "/c",
+                        "mklink",
+                        "/J",
+                        str(artifacts_junction),
+                        str(artifacts),
+                    ),
+                    check=False,
+                    text=True,
+                    capture_output=True,
+                )
+                self.assertEqual(0, junction.returncode, junction.stderr)
+                with (
+                    patch.object(checker.urllib.request, "urlopen") as remote_query,
+                    self.assertRaisesRegex(
+                        checker.PyPIArtifactError,
+                        "invalid artifacts directory",
+                    ),
+                ):
+                    checker.publication_state(
+                        "justdocs",
+                        "1.2.3",
+                        artifacts_junction,
+                    )
+                remote_query.assert_not_called()
 
             with (
                 patch.object(
@@ -1849,12 +1978,12 @@ class ThemePackageTest(unittest.TestCase):
             )
             environment, gh_calls_path, state_path, transaction_parent = (
                 transactional_release_environment(
-                root,
-                transactional_release_state(
-                    exists=True,
-                    immutable=True,
-                    assets={"package.whl": b"wheel"},
-                ),
+                    root,
+                    transactional_release_state(
+                        exists=True,
+                        immutable=True,
+                        assets={"package.whl": b"wheel"},
+                    ),
                 )
             )
             completed = run_release_preflight(
@@ -1897,9 +2026,7 @@ class ThemePackageTest(unittest.TestCase):
                 {"package.whl": b"wheel"},
                 "original notes\n",
             )
-            exact_assets = {
-                path.name: path.read_bytes() for path in dist_dir.iterdir()
-            }
+            exact_assets = {path.name: path.read_bytes() for path in dist_dir.iterdir()}
             exact_state = transactional_release_state(
                 exists=True,
                 immutable=True,
@@ -1927,9 +2054,7 @@ class ThemePackageTest(unittest.TestCase):
             self.assertEqual(0, published.returncode, published.stderr)
             self.assertEqual(
                 [],
-                release_transaction_mutations(
-                    release_transaction_calls(gh_calls_path)
-                ),
+                release_transaction_mutations(release_transaction_calls(gh_calls_path)),
             )
             journal = json.loads(
                 (transaction_root / "transaction.json").read_text(encoding="utf-8")
@@ -1986,7 +2111,7 @@ class ThemePackageTest(unittest.TestCase):
                 root = Path(directory)
                 environment, gh_calls_path, _, transaction_parent = (
                     transactional_release_environment(
-                    root, transactional_release_state(exists=False)
+                        root, transactional_release_state(exists=False)
                     )
                 )
                 environment["GITHUB_REPOSITORY"] = repository
@@ -2029,9 +2154,7 @@ class ThemePackageTest(unittest.TestCase):
             )
             self.assertEqual(
                 [],
-                release_transaction_mutations(
-                    release_transaction_calls(gh_calls_path)
-                ),
+                release_transaction_mutations(release_transaction_calls(gh_calls_path)),
             )
             self.assertEqual([], list(transaction_parent.iterdir()))
 
@@ -2040,7 +2163,7 @@ class ThemePackageTest(unittest.TestCase):
                 root = Path(directory)
                 environment, gh_calls_path, _, transaction_parent = (
                     transactional_release_environment(
-                    root, transactional_release_state(exists=False)
+                        root, transactional_release_state(exists=False)
                     )
                 )
                 environment["GITHUB_REPOSITORY"] = repository
@@ -2210,7 +2333,7 @@ class ThemePackageTest(unittest.TestCase):
             )
             environment, gh_calls_path, state_path, transaction_parent = (
                 transactional_release_environment(
-                root, transactional_release_state(exists=False)
+                    root, transactional_release_state(exists=False)
                 )
             )
             preflight = run_release_preflight(
@@ -2250,12 +2373,14 @@ class ThemePackageTest(unittest.TestCase):
                 )
                 and not any("/assets/" in value for value in call)
             ]
-            self.assertEqual(["POST", "PATCH", "PATCH"], [
-                call[call.index("-X") + 1] for call in release_mutations
-            ])
+            self.assertEqual(
+                ["POST", "PATCH", "PATCH"],
+                [call[call.index("-X") + 1] for call in release_mutations],
+            )
             create_payload = json.loads(
-                Path(release_mutations[0][release_mutations[0].index("--input") + 1])
-                .read_text(encoding="utf-8")
+                Path(
+                    release_mutations[0][release_mutations[0].index("--input") + 1]
+                ).read_text(encoding="utf-8")
             )
             self.assertEqual(
                 {
@@ -2275,7 +2400,9 @@ class ThemePackageTest(unittest.TestCase):
                 )
                 for call in release_mutations[1:]
             ]
-            self.assertEqual([True, False], [value["draft"] for value in patch_payloads])
+            self.assertEqual(
+                [True, False], [value["draft"] for value in patch_payloads]
+            )
             self.assertEqual(
                 ["false", "legacy"],
                 [value["make_latest"] for value in patch_payloads],
@@ -2284,8 +2411,7 @@ class ThemePackageTest(unittest.TestCase):
                 call
                 for call in calls
                 if any(
-                    value.startswith("https://uploads.github.com/")
-                    for value in call
+                    value.startswith("https://uploads.github.com/") for value in call
                 )
             ]
             uploaded_names = [
@@ -2402,9 +2528,7 @@ class ThemePackageTest(unittest.TestCase):
                 self.assertEqual(2, published.returncode)
                 state = json.loads(state_path.read_text(encoding="utf-8"))
                 journal = json.loads(
-                    (transaction_root / "transaction.json").read_text(
-                        encoding="utf-8"
-                    )
+                    (transaction_root / "transaction.json").read_text(encoding="utf-8")
                 )
                 calls = release_transaction_calls(calls_path)
                 delete_calls = [
@@ -2652,9 +2776,7 @@ class ThemePackageTest(unittest.TestCase):
                     index
                     for index, call in enumerate(calls)
                     if call[:3] == ["api", "-X", "PATCH"]
-                    and any(
-                        value.endswith("/releases/701") for value in call
-                    )
+                    and any(value.endswith("/releases/701") for value in call)
                 ]
                 delete_indices = [
                     index
@@ -2712,9 +2834,9 @@ class ThemePackageTest(unittest.TestCase):
                 )
                 patch_payloads = [
                     json.loads(
-                        Path(
-                            calls[index][calls[index].index("--input") + 1]
-                        ).read_text(encoding="utf-8")
+                        Path(calls[index][calls[index].index("--input") + 1]).read_text(
+                            encoding="utf-8"
+                        )
                     )
                     for index in patch_indices
                 ]
@@ -2758,9 +2880,7 @@ class ThemePackageTest(unittest.TestCase):
                 self.assertEqual("Replacement release", state["name"])
                 self.assertEqual("replacement notes\n", state["description"])
                 journal = json.loads(
-                    (transaction_root / "transaction.json").read_text(
-                        encoding="utf-8"
-                    )
+                    (transaction_root / "transaction.json").read_text(encoding="utf-8")
                 )
                 self.assertEqual("committed", journal["phase"])
                 self.assertEqual(TRANSACTION_ORIGINAL_SHA, journal["original_tag_sha"])
@@ -2867,8 +2987,7 @@ class ThemePackageTest(unittest.TestCase):
             tag_index = next(
                 index
                 for index, call in enumerate(calls)
-                if any("/git/refs/tags/" in value for value in call)
-                and "PATCH" in call
+                if any("/git/refs/tags/" in value for value in call) and "PATCH" in call
             )
             delete_indices = [
                 index
@@ -2922,9 +3041,7 @@ class ThemePackageTest(unittest.TestCase):
                     assets={"keep.bin": b"keep", "package.whl": b"old wheel"},
                     tag_sha=TRANSACTION_ORIGINAL_SHA,
                 )
-                original_ids = {
-                    asset["id"] for asset in original["assets"].values()
-                }
+                original_ids = {asset["id"] for asset in original["assets"].values()}
                 stage_root, dist_dir, notes_file = stage_transaction_assets(
                     root,
                     {"package.whl": b"new wheel"},
@@ -2953,9 +3070,7 @@ class ThemePackageTest(unittest.TestCase):
                 )
                 self.assertEqual(-9, interrupted.returncode)
                 journal = json.loads(
-                    (transaction_root / "transaction.json").read_text(
-                        encoding="utf-8"
-                    )
+                    (transaction_root / "transaction.json").read_text(encoding="utf-8")
                 )
                 self.assertEqual(expected_phase, journal["phase"])
                 for key in fault:
@@ -3048,8 +3163,7 @@ class ThemePackageTest(unittest.TestCase):
                 index
                 for index, call in enumerate(calls)
                 if any(
-                    value.startswith("https://uploads.github.com/")
-                    for value in call
+                    value.startswith("https://uploads.github.com/") for value in call
                 )
             ]
             rollback_patch_indices = [
@@ -3324,7 +3438,9 @@ class ThemePackageTest(unittest.TestCase):
                 purge_existing_assets="false",
             )
             self.assertEqual(2, published.returncode)
-            self.assertIn("release asset ownership changed: external.bin", published.stderr)
+            self.assertIn(
+                "release asset ownership changed: external.bin", published.stderr
+            )
             self.assertIn("rollback failed", published.stderr)
             state = json.loads(state_path.read_text(encoding="utf-8"))
             external_id = state["assets"]["external.bin"]["id"]
@@ -3561,9 +3677,7 @@ class ThemePackageTest(unittest.TestCase):
             (dist_dir / "SHA256SUMS.txt").write_text(manifest, encoding="utf-8")
             (directory_dist_dir / "package.whl").mkdir()
             os.mkfifo(fifo_dist_dir / "package.whl")
-            (symlink_dist_dir / "package.whl").symlink_to(
-                dist_dir / "package.whl"
-            )
+            (symlink_dist_dir / "package.whl").symlink_to(dist_dir / "package.whl")
             symlinked_dist_dir.symlink_to(dist_dir, target_is_directory=True)
             unreadable_asset = unreadable_dist_dir / "package.whl"
             unreadable_asset.write_bytes(asset_payload)
@@ -3606,9 +3720,7 @@ class ThemePackageTest(unittest.TestCase):
                 line.split("=", 1)
                 for line in github_output.read_text(encoding="utf-8").splitlines()
             )
-            self.assertEqual(
-                {"stage_root", "dist_dir", "notes_file"}, set(outputs)
-            )
+            self.assertEqual({"stage_root", "dist_dir", "notes_file"}, set(outputs))
             stage_root = Path(outputs["stage_root"])
             self.assertEqual(runner_temp.resolve(), stage_root.parent)
             self.assertEqual(stage_root / "assets", Path(outputs["dist_dir"]))
@@ -3684,9 +3796,9 @@ class ThemePackageTest(unittest.TestCase):
                     self.assertIn(expected_error, invalid.stderr)
                     self.assertEqual("", github_output.read_text(encoding="utf-8"))
 
-            cleanup_step = action.split(
-                "    - name: Cleanup release transaction\n", 1
-            )[1]
+            cleanup_step = action.split("    - name: Cleanup release transaction\n", 1)[
+                1
+            ]
             cleanup_script = dedent(cleanup_step.split("      run: |\n", 1)[1])
             cleaned = subprocess.run(
                 ("bash", "-c", cleanup_script),
@@ -3702,6 +3814,43 @@ class ThemePackageTest(unittest.TestCase):
             )
             self.assertEqual(0, cleaned.returncode, cleaned.stderr)
             self.assertFalse(stage_root.exists())
+
+    @unittest.skipIf(os.name == "nt", "POSIX release snapshot path")
+    def test_secure_posix_paths_expand_only_trusted_root_aliases(self) -> None:
+        helper_path = Path("scripts/release/secure_posix_paths.py").resolve()
+        specification = importlib.util.spec_from_file_location(
+            "secure_posix_paths_test",
+            helper_path,
+        )
+        if specification is None or specification.loader is None:
+            self.fail("secure POSIX path helper import failed")
+        secure_posix_paths = importlib.util.module_from_spec(specification)
+        specification.loader.exec_module(secure_posix_paths)
+        system_alias = next(
+            (
+                candidate
+                for candidate in map(Path, ("/var", "/tmp", "/bin", "/sbin", "/lib"))
+                if candidate.is_symlink() and candidate.lstat().st_uid == 0
+            ),
+            None,
+        )
+        if system_alias is None:
+            self.skipTest("root-owned system alias unavailable")
+        target = Path(os.readlink(system_alias))
+        expected = Path(system_alias.anchor, target)
+        self.assertEqual(
+            Path(os.path.abspath(expected)),
+            secure_posix_paths.canonical_directory(system_alias),
+        )
+
+        with TemporaryDirectory() as directory:
+            root = Path(directory)
+            target_directory = root / "target"
+            target_directory.mkdir()
+            untrusted_alias = root / "alias"
+            untrusted_alias.symlink_to(target_directory, target_is_directory=True)
+            with self.assertRaises(secure_posix_paths.SecurePathError):
+                secure_posix_paths.canonical_directory(untrusted_alias)
 
     @unittest.skipIf(os.name == "nt", "POSIX release snapshot path")
     def test_release_snapshot_accepts_workspace_alias_not_internal_symlink(
@@ -3786,9 +3935,7 @@ class ThemePackageTest(unittest.TestCase):
 
     @unittest.skipIf(os.name == "nt", "POSIX release snapshot path")
     def test_release_snapshot_rejects_inventory_tampering(self) -> None:
-        snapshot_script = Path(
-            "scripts/release/stage-release-inputs.py"
-        ).resolve()
+        snapshot_script = Path("scripts/release/stage-release-inputs.py").resolve()
         with TemporaryDirectory() as directory:
             root = Path(directory)
             workspace = root / "workspace"
@@ -3830,12 +3977,8 @@ class ThemePackageTest(unittest.TestCase):
             symlink_manifest_source.mkdir()
             (symlink_manifest_source / "package.whl").write_bytes(payload)
             manifest_target = workspace / "manifest-target.txt"
-            manifest_target.write_text(
-                f"{digest}  package.whl\n", encoding="utf-8"
-            )
-            (symlink_manifest_source / "SHA256SUMS.txt").symlink_to(
-                manifest_target
-            )
+            manifest_target.write_text(f"{digest}  package.whl\n", encoding="utf-8")
+            (symlink_manifest_source / "SHA256SUMS.txt").symlink_to(manifest_target)
             symlink_manifest = subprocess.run(
                 (
                     sys.executable,
@@ -3920,7 +4063,9 @@ class ThemePackageTest(unittest.TestCase):
             staged_asset = stage_root / "assets" / "package.whl"
             staged_notes = stage_root / "release-notes.md"
             self.assertEqual(payload, staged_asset.read_bytes())
-            self.assertEqual("release notes\n", staged_notes.read_text(encoding="utf-8"))
+            self.assertEqual(
+                "release notes\n", staged_notes.read_text(encoding="utf-8")
+            )
 
             outside_source = root / "outside-release"
             outside_source.mkdir()
@@ -3982,9 +4127,7 @@ class ThemePackageTest(unittest.TestCase):
             boolean_version = json.loads(metadata_payload)
             boolean_version["version"] = True
             metadata_path.chmod(0o600)
-            metadata_path.write_text(
-                json.dumps(boolean_version), encoding="utf-8"
-            )
+            metadata_path.write_text(json.dumps(boolean_version), encoding="utf-8")
             metadata_path.chmod(0o400)
             assert_snapshot_rejected("metadata version")
             metadata_path.chmod(0o600)
@@ -4052,9 +4195,7 @@ class ThemePackageTest(unittest.TestCase):
 
     @unittest.skipIf(os.name == "nt", "POSIX release snapshot path")
     def test_release_snapshot_reports_partial_cleanup_failure(self) -> None:
-        snapshot_script = Path(
-            "scripts/release/stage-release-inputs.py"
-        ).resolve()
+        snapshot_script = Path("scripts/release/stage-release-inputs.py").resolve()
         specification = importlib.util.spec_from_file_location(
             "stage_release_inputs_test", snapshot_script
         )
@@ -4088,9 +4229,7 @@ class ThemePackageTest(unittest.TestCase):
 
     @unittest.skipIf(os.name == "nt", "POSIX release snapshot path")
     def test_release_snapshot_cleans_setup_failure(self) -> None:
-        snapshot_script = Path(
-            "scripts/release/stage-release-inputs.py"
-        ).resolve()
+        snapshot_script = Path("scripts/release/stage-release-inputs.py").resolve()
         specification = importlib.util.spec_from_file_location(
             "stage_release_setup_test", snapshot_script
         )
@@ -4117,9 +4256,7 @@ class ThemePackageTest(unittest.TestCase):
             with (
                 patch.dict(os.environ, {"GITHUB_WORKSPACE": str(workspace)}),
                 patch.object(module.os, "O_NOFOLLOW", None),
-                self.assertRaisesRegex(
-                    module.SnapshotError, "requires os.O_NOFOLLOW"
-                ),
+                self.assertRaisesRegex(module.SnapshotError, "requires os.O_NOFOLLOW"),
             ):
                 module._stage(str(source_dir), "", str(runner_temp))
             self.assertEqual([], list(runner_temp.iterdir()))
@@ -4127,9 +4264,7 @@ class ThemePackageTest(unittest.TestCase):
             with (
                 patch.dict(os.environ, {"GITHUB_WORKSPACE": str(workspace)}),
                 patch.object(module.os, "O_NONBLOCK", None),
-                self.assertRaisesRegex(
-                    module.SnapshotError, "requires os.O_NONBLOCK"
-                ),
+                self.assertRaisesRegex(module.SnapshotError, "requires os.O_NONBLOCK"),
             ):
                 module._stage(str(source_dir), "", str(runner_temp))
             self.assertEqual([], list(runner_temp.iterdir()))

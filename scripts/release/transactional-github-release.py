@@ -20,6 +20,25 @@ from pathlib import Path
 from typing import Iterator, NoReturn
 from urllib.parse import quote, urlencode
 
+try:
+    from secure_posix_paths import (
+        SecurePathError,
+        canonical_child as secure_canonical_child,
+        canonical_directory as secure_canonical_directory,
+        directory_open_flags,
+        open_absolute_directory as secure_open_absolute_directory,
+    )
+except ModuleNotFoundError as import_error:
+    if import_error.name != "secure_posix_paths":
+        raise
+    from scripts.release.secure_posix_paths import (
+        SecurePathError,
+        canonical_child as secure_canonical_child,
+        canonical_directory as secure_canonical_directory,
+        directory_open_flags,
+        open_absolute_directory as secure_open_absolute_directory,
+    )
+
 
 SNAPSHOT_SCRIPT = Path(__file__).with_name("stage-release-inputs.py")
 VALIDATION_SCRIPT = Path(__file__).with_name("github-repository.sh")
@@ -180,7 +199,9 @@ def _run_with_regular_input(
             ) from error
         except subprocess.CalledProcessError as error:
             detail = (error.stderr or b"").decode("utf-8", "replace").strip()
-            message = f"command failed with exit code {error.returncode}: {arguments[0]}"
+            message = (
+                f"command failed with exit code {error.returncode}: {arguments[0]}"
+            )
             if detail:
                 message = f"{message}: {detail}"
             raise ReleaseTransactionError(message) from error
@@ -538,13 +559,11 @@ def _validate_parent(raw_parent: str) -> Path:
         raise ReleaseTransactionError("invalid transaction parent: expected path")
     parent = Path(os.path.abspath(raw_parent))
     try:
-        with _open_absolute_directory(parent):
-            pass
-    except OSError as error:
+        return _canonical_directory(parent)
+    except (OSError, ReleaseTransactionError) as error:
         raise ReleaseTransactionError(
-            "invalid transaction parent: expected directory without symbolic links"
+            "invalid transaction parent: expected secure directory"
         ) from error
-    return parent
 
 
 def _required_open_flags() -> int:
@@ -560,34 +579,33 @@ def _required_open_flags() -> int:
 
 
 def _directory_open_flags() -> int:
-    flags = os.O_RDONLY
-    for name in ("O_DIRECTORY", "O_NOFOLLOW"):
-        value = getattr(os, name, None)
-        if type(value) is not int or value == 0:
-            raise ReleaseTransactionError(
-                f"GitHub release transaction requires os.{name}"
-            )
-        flags |= value
-    return flags
+    try:
+        return directory_open_flags()
+    except SecurePathError as error:
+        raise ReleaseTransactionError(str(error)) from error
 
 
 @contextmanager
 def _open_absolute_directory(path: Path) -> Iterator[int]:
-    if not path.is_absolute():
-        raise ReleaseTransactionError("invalid absolute transaction directory")
-    descriptor = os.open(path.anchor, _directory_open_flags())
     try:
-        for component in path.parts[1:]:
-            child_descriptor = os.open(
-                component,
-                _directory_open_flags(),
-                dir_fd=descriptor,
-            )
-            os.close(descriptor)
-            descriptor = child_descriptor
-        yield descriptor
-    finally:
-        os.close(descriptor)
+        with secure_open_absolute_directory(path) as descriptor:
+            yield descriptor
+    except SecurePathError as error:
+        raise ReleaseTransactionError(str(error)) from error
+
+
+def _canonical_directory(path: Path) -> Path:
+    try:
+        return secure_canonical_directory(path)
+    except SecurePathError as error:
+        raise ReleaseTransactionError(str(error)) from error
+
+
+def _canonical_child(raw_path: str | Path) -> Path:
+    try:
+        return secure_canonical_child(raw_path)
+    except SecurePathError as error:
+        raise ReleaseTransactionError(str(error)) from error
 
 
 @contextmanager
@@ -631,9 +649,9 @@ def _read_regular_bytes(path: Path) -> bytes:
 
 
 def _encoded_json(payload: object) -> bytes:
-    return (
-        json.dumps(payload, sort_keys=True, separators=(",", ":")) + "\n"
-    ).encode("utf-8")
+    return (json.dumps(payload, sort_keys=True, separators=(",", ":")) + "\n").encode(
+        "utf-8"
+    )
 
 
 def _write_json_exclusive_at(
@@ -965,8 +983,11 @@ def _preflight(
     elif _resolve_commit(repository, tag) != target_sha:
         raise ReleaseTransactionError("release tag does not target the release commit")
     _query_release(repository, tag)
-    transaction_root = Path(tempfile.mkdtemp(prefix=TRANSACTION_PREFIX, dir=parent))
+    created_root = Path(tempfile.mkdtemp(prefix=TRANSACTION_PREFIX, dir=parent))
+    transaction_root = created_root
     try:
+        if transaction_root.parent != parent:
+            raise ReleaseTransactionError("invalid transaction creation boundary")
         _write_transaction(
             transaction_root,
             TransactionMetadata(
@@ -1009,7 +1030,7 @@ def _preflight(
 
 
 def _load_transaction(raw_root: str) -> tuple[Path, TransactionMetadata]:
-    root = Path(os.path.abspath(raw_root))
+    root = _canonical_child(raw_root)
     if not root.name.startswith(TRANSACTION_PREFIX):
         raise ReleaseTransactionError("invalid transaction root")
     try:
@@ -1101,8 +1122,16 @@ def _load_transaction(raw_root: str) -> tuple[Path, TransactionMetadata]:
         )
     ):
         raise ReleaseTransactionError("invalid transaction metadata value")
-    parent = Path(payload["parent"])
-    if not parent.is_absolute() or parent != Path(os.path.abspath(parent)):
+    persisted_parent = Path(payload["parent"])
+    if not persisted_parent.is_absolute() or persisted_parent != Path(
+        os.path.abspath(persisted_parent)
+    ):
+        raise ReleaseTransactionError("invalid transaction parent metadata")
+    try:
+        parent = _canonical_directory(persisted_parent)
+    except (OSError, ReleaseTransactionError) as error:
+        raise ReleaseTransactionError("invalid transaction parent metadata") from error
+    if parent != persisted_parent:
         raise ReleaseTransactionError("invalid transaction parent metadata")
     if root.parent != parent:
         raise ReleaseTransactionError("invalid transaction boundary")
@@ -1176,20 +1205,20 @@ def _load_transaction(raw_root: str) -> tuple[Path, TransactionMetadata]:
 
 
 def _snapshot_paths(raw_notes: str, raw_dist: str) -> tuple[Path, Path | None]:
-    dist_path = Path(raw_dist)
-    if dist_path.is_symlink():
-        raise ReleaseTransactionError("invalid staged distribution directory")
-    dist = dist_path.resolve(strict=True)
+    dist_path = Path(os.path.abspath(raw_dist))
+    try:
+        dist = _canonical_directory(dist_path)
+    except ReleaseTransactionError as error:
+        raise ReleaseTransactionError(
+            "invalid staged distribution directory"
+        ) from error
     stage_root = dist.parent
     if dist.name != "assets":
         raise ReleaseTransactionError("invalid staged distribution directory")
     _run((sys.executable, str(SNAPSHOT_SCRIPT), "verify", str(stage_root)))
     notes: Path | None = None
     if raw_notes:
-        notes_path = Path(raw_notes)
-        if notes_path.is_symlink():
-            raise ReleaseTransactionError("invalid staged release notes")
-        notes = notes_path.resolve(strict=True)
+        notes = _canonical_child(raw_notes)
         if notes != stage_root / "release-notes.md":
             raise ReleaseTransactionError("invalid staged release notes")
     files = tuple(sorted(dist.iterdir(), key=lambda path: path.name))
@@ -1306,9 +1335,7 @@ def _upload_transaction_assets(
 ) -> TransactionMetadata:
     owned = dict(metadata.owned_asset_ids)
     uploaded: list[tuple[Path, ReleaseAsset]] = []
-    temporary_names = {
-        _transaction_asset_name(metadata, path.name) for path in files
-    }
+    temporary_names = {_transaction_asset_name(metadata, path.name) for path in files}
     current = _query_release(metadata.repository, metadata.tag)
     if current is None or current.database_id != release_id:
         raise ReleaseTransactionError("release disappeared before asset upload")
@@ -1531,7 +1558,8 @@ def _assert_recoverable_assets(
         ) == _asset_observable(asset):
             continue
         if any(
-            asset == replace(
+            asset
+            == replace(
                 original_asset,
                 name=_retained_asset_name(original_asset),
             )

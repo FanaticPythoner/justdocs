@@ -14,6 +14,25 @@ from contextlib import contextmanager
 from pathlib import Path
 from typing import BinaryIO, Iterator
 
+try:
+    from secure_posix_paths import (
+        SecurePathError,
+        canonical_child as secure_canonical_child,
+        canonical_directory as secure_canonical_directory,
+        directory_open_flags,
+        open_absolute_directory as secure_open_absolute_directory,
+    )
+except ModuleNotFoundError as import_error:
+    if import_error.name != "secure_posix_paths":
+        raise
+    from scripts.release.secure_posix_paths import (
+        SecurePathError,
+        canonical_child as secure_canonical_child,
+        canonical_directory as secure_canonical_directory,
+        directory_open_flags,
+        open_absolute_directory as secure_open_absolute_directory,
+    )
+
 
 MANIFEST_NAME = "SHA256SUMS.txt"
 METADATA_NAME = "snapshot.json"
@@ -44,28 +63,33 @@ def _regular_read_flags() -> int:
 
 
 def _directory_read_flags() -> int:
-    return (
-        os.O_RDONLY | _required_os_flag("O_DIRECTORY") | _required_os_flag("O_NOFOLLOW")
-    )
+    try:
+        return directory_open_flags()
+    except SecurePathError as error:
+        raise SnapshotError(str(error)) from error
 
 
 @contextmanager
 def _open_absolute_directory(path: Path) -> Iterator[int]:
-    if not path.is_absolute():
-        raise SnapshotError(f"invalid absolute directory path '{path}'")
-    descriptor = os.open(path.anchor, _directory_read_flags())
     try:
-        for component in path.parts[1:]:
-            child_descriptor = os.open(
-                component,
-                _directory_read_flags(),
-                dir_fd=descriptor,
-            )
-            os.close(descriptor)
-            descriptor = child_descriptor
-        yield descriptor
-    finally:
-        os.close(descriptor)
+        with secure_open_absolute_directory(path) as descriptor:
+            yield descriptor
+    except SecurePathError as error:
+        raise SnapshotError(str(error)) from error
+
+
+def _canonical_directory(path: Path) -> Path:
+    try:
+        return secure_canonical_directory(path)
+    except SecurePathError as error:
+        raise SnapshotError(str(error)) from error
+
+
+def _canonical_child(path: Path) -> Path:
+    try:
+        return secure_canonical_child(path)
+    except SecurePathError as error:
+        raise SnapshotError(str(error)) from error
 
 
 @contextmanager
@@ -164,7 +188,7 @@ def _resolve_confined(raw_path: str, label: str, expected_kind: str) -> Path:
                 f"invalid {label} '{raw_path}': symbolic links are not allowed"
             )
 
-    resolved = lexical.resolve(strict=True)
+    resolved = workspace / relative
     try:
         resolved.relative_to(workspace)
     except ValueError as error:
@@ -288,8 +312,10 @@ def _remove_tree_at(parent_descriptor: int, root_name: str) -> None:
     os.rmdir(root_name, dir_fd=parent_descriptor)
 
 
-def _remove_tree(stage_root: Path) -> None:
-    with _open_absolute_directory(stage_root.parent) as parent_descriptor:
+def _remove_tree(stage_parent: Path, stage_root: Path) -> None:
+    if stage_root.parent != stage_parent:
+        raise SnapshotError("invalid release snapshot cleanup boundary")
+    with _open_absolute_directory(stage_parent) as parent_descriptor:
         _remove_tree_at(parent_descriptor, stage_root.name)
 
 
@@ -300,26 +326,30 @@ def _stage(source_raw: str, notes_raw: str, stage_parent_raw: str) -> Path:
         _resolve_confined(notes_raw, "notes_file", "file") if notes_raw else None
     )
 
-    stage_parent_path = Path(stage_parent_raw)
+    stage_parent_path = Path(os.path.abspath(stage_parent_raw))
     if stage_parent_path.is_symlink():
         raise SnapshotError(
             f"invalid RUNNER_TEMP '{stage_parent_raw}': symbolic links are not allowed"
         )
-    stage_parent = stage_parent_path.resolve(strict=True)
-    if not stage_parent.is_dir():
+    try:
+        stage_parent = _canonical_directory(stage_parent_path)
+    except SnapshotError as error:
         raise SnapshotError(
             f"invalid RUNNER_TEMP '{stage_parent_raw}': expected regular directory"
-        )
+        ) from error
     with _open_absolute_directory(source_dir) as source_descriptor:
         manifest_bytes, manifest_entries = _read_manifest(
             source_dir,
             source_descriptor,
         )
         _validate_inventory(source_dir, source_descriptor, manifest_entries)
-        stage_root = Path(
+        created_root = Path(
             tempfile.mkdtemp(prefix="justdocs-release-", dir=stage_parent)
         )
+        stage_root = created_root
         try:
+            if stage_root.parent != stage_parent:
+                raise SnapshotError("invalid release snapshot creation boundary")
             assets_dir = stage_root / ASSETS_NAME
             assets_dir.mkdir(mode=0o700)
             metadata: dict[str, object] = {
@@ -364,7 +394,7 @@ def _stage(source_raw: str, notes_raw: str, stage_parent_raw: str) -> Path:
             return stage_root
         except Exception as staging_error:
             try:
-                _remove_tree(stage_root)
+                _remove_tree(stage_parent, stage_root)
             except Exception as cleanup_error:
                 raise SnapshotError(
                     f"release snapshot staging failed: {staging_error}; "
@@ -395,7 +425,7 @@ def _parse_metadata(metadata_bytes: bytes) -> dict[str, object]:
 
 def _verify(stage_root_raw: str) -> None:
     _regular_read_flags()
-    stage_root = Path(os.path.abspath(stage_root_raw))
+    stage_root = _canonical_child(Path(stage_root_raw))
     if not stage_root.name.startswith("justdocs-release-"):
         raise SnapshotError("invalid release snapshot root")
     try:
@@ -480,11 +510,10 @@ def _verify(stage_root_raw: str) -> None:
 
 
 def _cleanup(stage_root_raw: str, stage_parent_raw: str) -> None:
-    stage_root = Path(os.path.abspath(stage_root_raw))
-    stage_parent = Path(os.path.abspath(stage_parent_raw))
-    if (
-        stage_root.parent != stage_parent
-        or not stage_root.name.startswith("justdocs-release-")
+    stage_root = _canonical_child(Path(stage_root_raw))
+    stage_parent = _canonical_directory(Path(os.path.abspath(stage_parent_raw)))
+    if stage_root.parent != stage_parent or not stage_root.name.startswith(
+        "justdocs-release-"
     ):
         raise SnapshotError("invalid release snapshot cleanup boundary")
     try:
