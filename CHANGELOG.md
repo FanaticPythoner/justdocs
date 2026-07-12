@@ -5,6 +5,11 @@ and the exact commit boundary included by each immutable version tag.
 
 ## Unreleased
 
+## v0.1.0 - 2026-07-12
+
+- release tag: `v0.1.0`
+- previous release: none
+
 - Add the installable `justdocs` CLI, isolated global installers, project recipe commands,
   self-update support, and reproducible Python distributions.
 - Add the packaged MkDocs theme, local search, smart links, responsive navigation, Mermaid,
@@ -14,3 +19,1094 @@ and the exact commit boundary included by each immutable version tag.
 - Add Python 3.10 through 3.14, free-threaded Python, macOS, Windows, distribution, security,
   documentation, and artifact-integrity checks.
 
+### Included commits
+
+- [`13a2fd8`](https://github.com/FanaticPythoner/justdocs/commit/13a2fd86b974dcd608e72a13cea3399ae1700af6) Initial commit
+- [`dc28c39`](https://github.com/FanaticPythoner/justdocs/commit/dc28c3970c88647e196eebc9f00e4e523f52eb27) Add justdocs MkDocs theme package
+  > - Package justdocs 0.1.0 with setuptools metadata, Python 3.10+ support,
+  >   MkDocs >=1.6,<3, console script, theme entry point, and linker plugin entry
+  >   point.
+  > - Include theme templates, static CSS/JS assets, Mermaid license text, and the
+  >   project Justfile template as setuptools package data.
+  > - Add `justdocs theme-dir` to validate and print the bundled MkDocs theme path.
+  > - Add `justdocs init` to write project-local Justfiles with root, MkDocs config,
+  >   bind address, package spec, and forced overwrite controls.
+  > - Add typed asset errors for incomplete theme and project template bundles.
+  > - Add project Justfile generation with frozen config, address-derived port,
+  >   placeholder replacement, existing-file preservation, forced regeneration, and
+  >   editable install flag rejection.
+  > - Add source Justfile recipes for package install, theme path lookup, unit tests,
+  >   generated example Justfile refresh, strict example build, serve, and aggregate
+  >   check.
+  > - Add generated project recipes for install, check/build, serve, serve-clean,
+  >   free-port, clean, dist-clean, env overrides, local source install locking via
+  >   `flock`, and `pymdown-extensions==10.12`.
+  > - Add MkDocs theme config extending stock MkDocs with 404 template, navigation
+  >   depth, primary nav style, color mode, and user color mode toggle.
+  > - Add base, main, and 404 templates for topbar, left navigation, right TOC,
+  >   pagination, mobile navigation, search, theme toggle, preferences, sidebar
+  >   controls, sidebar resizers, sidebar restore buttons, and drawer scrim.
+  > - Inject `extra.justdocs` palette, typography, shape, layout, preference,
+  >   feature, sidebar, breakpoint, and search values into CSS tokens and
+  >   `window.JUSTDOCS`.
+  > - Add theme CSS for responsive grid layout, drawer/mobile states, collapsible
+  >   sidebars, resizable rails, preferences, search results, light/dark tokens,
+  >   table labels, mobile table cards, code blocks, linked inline code, Mermaid
+  >   blocks, reduced motion, and print output.
+  > - Add theme JS for viewport state, topbar height sync, sidebar width clamping,
+  >   localStorage sidebar state, pointer and keyboard resizing, preferences
+  >   persistence, preferences reset, local search loading, result scoring, snippet
+  >   highlighting, navigation scroll persistence, theme switching, table labels,
+  >   Highlight.js setup, code copy setup, and Mermaid render/re-render.
+  > - Bundle Highlight.js v11.9.0 GitHub Dark CSS/JS, copy-button CSS/JS with
+  >   browser global export, Mermaid JS, and Mermaid MIT license text.
+  > - Add `justdocs-linker` to collect heading, page-stem, and action-ID targets;
+  >   remove stop phrases and ambiguous targets; normalize whitespace, dashes, and
+  >   case; compute relative URLs; protect fences, links, reference definitions,
+  >   tags, headings, and inline code; and bound links per page and per target.
+  > - Link inline action IDs matching `P\d+-\d{4}` while preserving fenced code and
+  >   existing Markdown links.
+  > - Add an executable example site with search, `justdocs-linker`,
+  >   `pymdownx.highlight`, Mermaid superfences, TOC permalinks, complete
+  >   `extra.justdocs` configuration, and pages covering Service Discovery,
+  >   Deployment Guide, Traffic Policy, tables, code, and Mermaid.
+  > - Add reference content recording theme, search, smart-link, and complexity
+  >   contracts, including O(n), O(p * q), and O(p * t * s) operation bounds.
+  > - Expand README from a stub into package, configuration, CLI, generated recipe,
+  >   source command, and runtime behavior reference.
+  > - Add audit artifact mapping project Justfile generation files, flows, guards,
+  >   deterministic invariants, scope completion, and verification evidence.
+  > - Ignore generated `examples/**/site/` outputs.
+  > - Add 23 unittest cases covering packaged assets, template availability,
+  >   Justfile rendering, overwrite refusal, forced overwrite, editable package spec
+  >   rejection, theme metadata, template assets, sidebar controls, preferences,
+  >   Mermaid, code copy, feature gates, CSS layout contracts, example config,
+  >   relative URLs, prose/table smart links, and inline action-ID links.
+- [`ba6433b`](https://github.com/FanaticPythoner/justdocs/commit/ba6433b2787955a210a193e47d1d0884d257c247) Refresh Justdocs docs and example contract coverage
+  > - Expand the README into a complete Justdocs reference for package metadata,
+  >   Python and MkDocs requirements, console script binding, theme entry point,
+  >   plugin entry point, packaged theme assets, and the project Justfile template.
+  > - Document the full MkDocs integration surface with `search`,
+  >   `justdocs-linker`, tables, `pymdownx.highlight`, Mermaid superfences, TOC
+  >   permalinks, and the complete `extra.justdocs` config shape.
+  > - Define every documented theme config default for title, favicon, palette,
+  >   typography, shape, content width, density, motion, breakpoints, sidebars,
+  >   preferences, feature gates, and client search limits.
+  > - Add browser runtime contracts for viewport datasets, compact topbar state,
+  >   small viewport state, theme, density, content width, motion, sidebar state,
+  >   sidebar widths, nav scroll storage, search index resolution, search scoring,
+  >   Mermaid initialization, and sidebar resizing keys.
+  > - Document `justdocs theme-dir` and `justdocs init` CLI behavior, including
+  >   asset validation, generated Justfile output, init flags, overwrite policy, and
+  >   typed failure classes.
+  > - Document generated project recipes for install, check, build, serve,
+  >   serve-clean, free-port, clean, and dist-clean, including every
+  >   `JUSTDOCS_*` environment override.
+  > - Record local source install locking through `flock`, lock directory layout,
+  >   extra package installation with `pymdown-extensions==10.12`, and editable
+  >   install rejection.
+  > - Add source-repo recipe docs for local package install, theme path lookup,
+  >   example Justfile regeneration, unit tests, strict example build, example
+  >   serve, and aggregate check.
+  > - Define `justdocs-linker` plugin config defaults for enabled state, minimum
+  >   phrase length, per-page link cap, and per-target link cap.
+  > - Document smart-link target generation from page H1s, ATX headings, file
+  >   stems, action stems, and action IDs.
+  > - Document smart-link filtering for stop phrases, ambiguous phrases, phrase
+  >   eligibility, deterministic ordering, and current-page exclusions.
+  > - Document protected Markdown ranges for fenced code, existing links, reference
+  >   definitions, HTML tags, ATX headings, inline code, and linkable inline action
+  >   IDs.
+  > - Add complexity bounds for target collection, target dedupe, protected range
+  >   merging, smart-link passes, theme asset validation, template rendering, and
+  >   search scoring.
+  > - Add packaged asset and runtime error reference tables covering required theme
+  >   files, Highlight.js assets, copy-button assets, Mermaid assets, template
+  >   files, search failures, missing controls, and missing browser globals.
+  > - Replace the example service-topic docs with Justdocs-specific pages for
+  >   Theme Configuration, Project Setup, Smart Links, and Reference.
+  > - Update the example index to exercise the current docs graph, runtime feature
+  >   table, required MkDocs plugins, Mermaid rendering, Python API snippet, and
+  >   mobile table label behavior.
+  > - Add explicit example nav entries for Theme Configuration, Project Setup,
+  >   Smart Links, and Reference in `examples/basic/mkdocs.yml`.
+  > - Remove obsolete Service Discovery, Deployment Guide, and Traffic Policy
+  >   example pages from the staged docs surface.
+  > - Extend docs tests to require the new example nav entries, verify README and
+  >   example docs both cover current contract terms, and reject stale service-topic
+  >   terms from the example docs.
+  > - Update smart-link table/prose tests to use current Justdocs page targets while
+  >   preserving coverage for tables, prose, inline code protection, existing link
+  >   preservation, and Mermaid fenced code protection.
+  > - Keep staged scope to 11 files with 648 insertions and 117 deletions across
+  >   README, example docs, example nav, and docs coverage tests.
+- [`15edb7e`](https://github.com/FanaticPythoner/justdocs/commit/15edb7ee689b4222a1ecc106e69ec34e4badccd4) perf: compile smart-link targets into one match graph
+  > Build a compiled smart-link graph during MkDocs file discovery and reuse it
+  > while each page is linked, replacing repeated per-target regex scans with one
+  > aggregate matcher plus normalized-key lookup.
+  > 
+  > Smart-link compilation:
+  > - Replace per-target compiled regex storage with normalized target keys and
+  >   reusable pattern text.
+  > - Add `CompiledLinkGraph` for compiled targets, exact-key target lookup, and an
+  >   optional aggregate regex.
+  > - Build empty target sets as `pattern=None` so link segments return unchanged
+  >   without regex work.
+  > 
+  > Linking behavior:
+  > - Change `_link_segment()` to search the aggregate regex from each cursor
+  >   position instead of scanning every target pattern.
+  > - Resolve matches through normalized `match.group(0)` keys before applying
+  >   self-link and per-target cap checks.
+  > - Keep unmatched, current-page, and cap-exhausted matches as plain text.
+  > - Reuse the compiled key lookup for inline action-ID code references.
+  > 
+  > Plugin lifecycle:
+  > - Store `_link_graph` on `JustdocsLinkerPlugin` instead of raw targets.
+  > - Reset disabled or empty plugin state to an empty compiled graph.
+  > - Compile deduped page candidates once in `on_files()` and pass the graph into
+  >   page-level Markdown linking.
+  > - Keep `_smart_link_markdown()` compatible with tuple target inputs by compiling
+  >   only when callers have not supplied `CompiledLinkGraph`.
+  > 
+  > Checks:
+  > - `git diff --cached --check`
+  > - `PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=. python3 -m unittest discover -s tests`
+  >   (`Ran 24 tests in 0.006s`, `OK`)
+- [`60a3900`](https://github.com/FanaticPythoner/justdocs/commit/60a3900ac777467247e8549ce38379a98ec4abe3) Remove audits dir
+- [`829dc62`](https://github.com/FanaticPythoner/justdocs/commit/829dc627fb551d0550e3b37b62949354bb05ee1b) Add GNU GPL v3 license file
+  > Added the GNU General Public License version 3 to the project.
+- [`912a5c5`](https://github.com/FanaticPythoner/justdocs/commit/912a5c5f14af7874d932dee473e74cddacf520f4) Update README with public status note
+  > Updated README to reflect public status change.
+- [`26b4d58`](https://github.com/FanaticPythoner/justdocs/commit/26b4d5815ac65b07c75123086dde2dd32ab489b5) Update repository visibility and license note
+- [`550dd8c`](https://github.com/FanaticPythoner/justdocs/commit/550dd8c154fcf8c24e185bc73eb17afc62e723d7) Fix punctuation in README note about repository status
+- [`5dff853`](https://github.com/FanaticPythoner/justdocs/commit/5dff853d73a0d95a94f5a405df80c1cd05cfb73c) feat: ship installable justdocs CLI and release automation
+  > Expose justdocs as a user-global command without cloning, mirror generated
+  > project recipes through the installed CLI, add package self-maintenance commands,
+  > and wire the repository for validated Python distribution releases.
+  > 
+  > Global Installation:
+  > - Add executable `install.sh` for `curl -fsSL .../install.sh | sh` installs.
+  > - Add `install.ps1` for `irm .../install.ps1 | iex` Windows installs.
+  > - Default bootstrap installs to the GitHub `main` archive at
+  >   `https://github.com/FanaticPythoner/justdocs/archive/main.tar.gz`.
+  > - Support `JUSTDOCS_INSTALL_SOURCE=github`, `pypi`, and `url` across both
+  >   bootstrap installers.
+  > - Support exact PyPI versions with `JUSTDOCS_INSTALL_VERSION`.
+  > - Support full pip requirement overrides with `JUSTDOCS_INSTALL_SPEC`.
+  > - Support custom archive URLs with `JUSTDOCS_INSTALL_URL`.
+  > - Support custom repositories and refs with `JUSTDOCS_REPOSITORY` and
+  >   `JUSTDOCS_INSTALL_REF`.
+  > - Add `JUSTDOCS_INSTALL_DRY_RUN` so CI can assert resolved pip commands without
+  >   mutating global user state.
+  > - Require Python 3.10+ before invoking pip in both bootstrap installers.
+  > - Use `ensurepip --user` when pip is absent before global install.
+  > - Verify the installed `justdocs` command resolves from the selected
+  >   interpreter user scripts directory.
+  > - Fail when `justdocs` is absent from `PATH` or shadowed by another command.
+  > - Add source-tree `just global-install` and `just install-global` aliases.
+  > - Add source-tree `just global-uninstall` and `just uninstall-global` aliases.
+  > - Route source global install and uninstall through `justdocs.global_cli`.
+  > - Validate source installs by `pyproject.toml` presence before invoking pip.
+  > - Detect platform console script names for POSIX and Windows user script dirs.
+  > - Verify uninstall by checking that user script candidates were removed.
+  > - Share cross-platform source install locks through `justdocs.install_support`.
+  > 
+  > Project Recipe CLI:
+  > - Make bare `justdocs` exit successfully with parser help and common commands.
+  > - Add `justdocs project` and `justdocs projects` namespaces.
+  > - Expose `init`, `install`, `check`, `build`, `serve`, `serve-clean`,
+  >   `free-port`, `clean`, and `dist-clean` as CLI recipe equivalents.
+  > - Preserve `justdocs init` as the direct project Justfile generator.
+  > - Add `ProjectRecipeConfig` for root, MkDocs config, bind address, port,
+  >   package spec, extra packages, virtualenv path, and Python executable.
+  > - Resolve virtualenv paths under the selected project root.
+  > - Create virtualenvs only when the configured interpreter is missing.
+  > - Run project installs as virtualenv pip commands.
+  > - Upgrade pip before installing the configured package and extra packages.
+  > - Reuse `split_package_spec` so CLI recipes inherit editable-install rejection.
+  > - Serialize local source package installs with the shared install lock.
+  > - Run strict MkDocs builds as `mkdocs build -f <config> --strict --clean`.
+  > - Implement serve and serve-clean through the configured address.
+  > - Validate free-port inputs as TCP ports in `1..65535`.
+  > - Use `lsof` or `fuser` for POSIX listener discovery.
+  > - Use `netstat -ano -p TCP` and `taskkill /F` for Windows listener cleanup.
+  > - Remove `site`, `.cache`, `.mkdocs_cache`, and the configured virtualenv for
+  >   cleanup recipes.
+  > 
+  > Version And Package Maintenance:
+  > - Add `justdocs version` and `justdocs version --json`.
+  > - Add `justdocs version --check` to combine installed version output with
+  >   remote metadata checks.
+  > - Add `justdocs self check-update` with PyPI JSON and GitHub latest release
+  >   sources.
+  > - Add `justdocs self update` with PyPI and GitHub release tag install targets.
+  > - Parse versions through `packaging.version.Version` for PEP 440 ordering.
+  > - Normalize GitHub tags by removing a leading `v`.
+  > - Report malformed PyPI and GitHub metadata through `UpdateCheckError`.
+  > - Report pip install failures through `UpdateInstallError`.
+  > - Resolve GitHub repository slugs from installed package metadata Project-URL
+  >   entries.
+  > - Emit JSON result payloads for automation consumers.
+  > 
+  > Release Automation:
+  > - Add a reusable `build-dist` composite action around the release build script.
+  > - Add a reusable `release-assets` composite action for GitHub Release create,
+  >   edit, purge, and upload flows.
+  > - Add CI for Python `3.10`, `3.11`, `3.12`, `3.13`, `3.13t`, `3.14`, and
+  >   `3.14t`.
+  > - Add CI coverage on `ubuntu-24.04`, `macos-15`, and `windows-2025`.
+  > - Build and upload distribution artifacts from the Python `3.12` CI row.
+  > - Add a reusable workflow to build Python distributions from an arbitrary ref.
+  > - Add a tagged release workflow for `v*.*.*` pushes and manual existing-tag
+  >   dispatch.
+  > - Validate release tags against `pyproject.toml` version before publishing.
+  > - Require the release tag commit to be reachable from `origin/main`.
+  > - Publish to PyPI through `pypa/gh-action-pypi-publish@release/v1` only when
+  >   `PYPI_API_TOKEN` exists.
+  > - Stage only `.whl` and `.tar.gz` files into `artifacts/pypi`.
+  > - Attest wheel and sdist provenance through `actions/attest-build-provenance`.
+  > - Verify public PyPI visibility after credentialed publishes.
+  > - Add a scheduled and push-triggered `latest` prerelease workflow for `main`.
+  > - Generate release notes from commits since the previous semantic version tag.
+  > - Stage `install.sh` and `install.ps1` with release assets.
+  > - Generate `SHA256SUMS.txt` over release installers, wheel, and sdist.
+  > - Add Dependabot coverage for pip and GitHub Actions dependencies.
+  > - Add CodeQL analysis for Python and GitHub Actions.
+  > - Add dependency review for pull requests.
+  > 
+  > Packaging Metadata:
+  > - Raise the build backend requirement to `setuptools>=77`.
+  > - Add `README.md` as package readme metadata.
+  > - Add SPDX license metadata with `GPL-3.0-only`.
+  > - Add `license-files = ["LICENSE"]`.
+  > - Add `packaging>=24,<26` as a runtime dependency for version ordering.
+  > - Add Python `3.14` and free-threading classifiers.
+  > - Add CPython, MkDocs, console, developer audience, and documentation topic
+  >   classifiers.
+  > - Add Homepage, Repository, Issues, and Releases project URLs.
+  > - Ignore generated release artifacts while keeping audit markdown files tracked.
+  > 
+  > Documentation And Audit Artifacts:
+  > - Document no-clone POSIX and PowerShell bootstrap install commands.
+  > - Document bootstrap environment variables and PATH verification failures.
+  > - Document global install and uninstall source recipes.
+  > - Document project recipe CLI command parity.
+  > - Document version checks, package self-maintenance commands, and release flows.
+  > - Document PyPI credential gating and GitHub release asset behavior.
+  > - Add example docs coverage for bootstrap installers and release automation.
+  > - Add reference docs for `ProjectRecipeConfig`, `ProjectRecipeError`,
+  >   `GlobalCliError`, `UpdateCheckError`, and `UpdateInstallError`.
+  > - Add audit artifacts mapping file roles, flows, invariants, fixed locations,
+  >   scope completion, tests, and complexity for global CLI and release work.
+  > 
+  > Tests:
+  > - Add contract coverage for source Justfile global install recipes and aliases.
+  > - Add project init alias coverage for `justdocs projects init`.
+  > - Add no-arg CLI command hub coverage.
+  > - Add project recipe dispatch coverage for CLI arguments and environment
+  >   override plumbing.
+  > - Add PyPI and GitHub version candidate selection coverage.
+  > - Add current-version and PEP 440 ordering coverage.
+  > - Add pip command construction coverage for PyPI and GitHub updates.
+  > - Add CLI self-update dispatch coverage.
+  > - Add release workflow assertions for setup-python v6, PyPI publishing,
+  >   artifact staging, release actions, Python 3.14, and free-threaded rows.
+  > - Add bootstrap installer assertions for shell syntax, default GitHub archive
+  >   dry-run, explicit PyPI dry-run, and tagged GitHub archive dry-run.
+  > - Add global CLI script candidate coverage for POSIX and Windows names.
+  > - Add locked user pip install coverage for source global install.
+  > - Add uninstall verification coverage for global CLI removal.
+  > - Add project recipe install coverage for venv creation, pip upgrade, package
+  >   install, extra packages, and lock use.
+  > - Add project recipe strict MkDocs command coverage.
+  > - Add project clean and invalid free-port coverage.
+  > - Extend docs coverage required terms to CLI, release, installer, and package
+  >   metadata contracts.
+  > 
+  > Checks:
+  > - `git diff --cached --check`
+  > - `sh -n install.sh`
+  > - `bash -n scripts/release/build-python-package.sh scripts/release/release-artifacts.sh scripts/release/release-versioning.sh scripts/release/resolve-release-metadata.sh scripts/release/verify-pypi.sh scripts/release/write-release-notes.sh`
+  > - `JUSTDOCS_INSTALL_DRY_RUN=1 JUSTDOCS_PYTHON=$(command -v python3) sh install.sh`
+  > - `JUSTDOCS_INSTALL_DRY_RUN=1 JUSTDOCS_PYTHON=$(command -v python3) JUSTDOCS_INSTALL_SOURCE=pypi sh install.sh`
+  > - `JUSTDOCS_INSTALL_DRY_RUN=1 JUSTDOCS_PYTHON=$(command -v python3) JUSTDOCS_INSTALL_SOURCE=github JUSTDOCS_INSTALL_REF=v0.1.0 sh install.sh`
+  > - `.venv/bin/python - <<'PY' ... yaml.safe_load(...) ... PY`
+  > - `just test`
+  > - `just check`
+  > - `just dist`
+  > 
+  > Measurements:
+  > - Staged diff: 33 files changed, 3156 insertions, 32 deletions.
+  > - Workflow parse: 9 YAML files parsed.
+  > - Unit suite: 44 tests passed.
+  > - Strict docs build: documentation built in 0.14 seconds.
+  > - Distribution validation: wheel and sdist passed Twine checks.
+  > - Release artifact set: `SHA256SUMS.txt`, `install.ps1`, `install.sh`,
+  >   `justdocs-0.1.0-py3-none-any.whl`, and `justdocs-0.1.0.tar.gz`.
+- [`d87e960`](https://github.com/FanaticPythoner/justdocs/commit/d87e9608de0119028cf699eaac1418ef395e777d) feat: unify CLI project, install, update, and release flows
+  > Replace alias-heavy user-site lifecycle paths with canonical `projects`
+  > commands, stored project configuration, isolated platform installers,
+  > release-wheel updates, and reproducible PEP 440 release automation. Enforce
+  > ownership, path confinement, bounded metadata, deterministic lock order,
+  > atomic writes, publication authentication, and synchronized documentation.
+  > 
+  > CLI contract:
+  > - Make `projects` the sole project namespace with `init`, `install`, `check`,
+  >   `build`, `serve`, `serve-clean`, `free-port`, `clean`, and `dist-clean`.
+  > - Move update discovery and installation to top-level `check-update` and
+  >   `update`; default update source selection to `auto` across PyPI and GitHub.
+  > - Remove top-level `init`, singular `project`, nested `self` commands,
+  >   `version --check`, `update --user`, and source recipe aliases
+  >   `install-global` and `uninstall-global`.
+  > - Load theme, project, and update modules only for matching commands so bare
+  >   help and version lookup avoid unrelated engines.
+  > - Read installed version solely from distribution metadata through the new
+  >   `version` module; remove the static package `__version__` fallback and fail
+  >   explicitly when metadata is absent.
+  > - Centralize package name, 3-second network timeout, default address, and
+  >   default extra-package requirement in `constants.py`.
+  > - Report exact updated/current outcomes and preserve partial source failures as
+  >   stderr warnings.
+  > 
+  > Project configuration:
+  > - Persist schema-1, sorted, ASCII-safe JSON in the first generated Justfile
+  >   line with exact `mkdocs_config`, `addr`, `package`, `extra_packages`, and
+  >   `venv` fields.
+  > - Bound stored configuration reads to 65,536 bytes and reject symlinks,
+  >   non-regular files, non-UTF-8 text, malformed JSON, unknown or missing fields,
+  >   non-string values, and unsupported schemas.
+  > - Resolve project settings by CLI option, `JUSTDOCS_*` environment value,
+  >   stored Justfile value, then package default; derive port from the effective
+  >   address when no explicit port exists.
+  > - Validate template marker cardinality and JSON-escape quotes, newlines, and
+  >   shell-shaped values before rendering.
+  > - Write generated Justfiles through same-directory temporary files, `fsync`,
+  >   mode preservation, and atomic replacement; replace forced symlinks without
+  >   following their targets.
+  > - Preserve PEP 508 requirements, URLs, and filesystem paths with spaces as
+  >   single pip arguments while rejecting empty specs and every pip option token.
+  > - Replace 43-line Bash-specific generated recipes with 28-line,
+  >   platform-neutral delegates to `justdocs projects`; retain all eight recipe
+  >   names.
+  > - Add Windows PowerShell shell selection, platform Python defaults, canonical
+  >   example generation, and repository-venv PATH injection to the source
+  >   Justfile.
+  > 
+  > Project execution and locking:
+  > - Lock the configured virtualenv plus every local source package from primary
+  >   and extra requirements in deduplicated lexical order across venv creation
+  >   and pip installation.
+  > - Remove the independent pip self-upgrade from project installation.
+  > - Secure shared install-lock storage with canonical full SHA-256 names, POSIX
+  >   owner checks, `0700` root mode, `0600` file mode, and symlink rejection.
+  > - Restrict virtualenv paths to strict descendants of the resolved project root,
+  >   including symlink-mediated paths.
+  > - Unlink output symlinks without traversal, reject regular-file cleanup
+  >   targets, and translate filesystem failures into project errors.
+  > - Reject malformed POSIX and Windows listener PIDs, preserve the `1..65535`
+  >   port invariant, and translate subprocess launch failures.
+  > - Reject Boolean and nonpositive integer values for linker limits during
+  >   MkDocs configuration.
+  > - Preserve existing theme/template asset resolution and smart-link transforms;
+  >   limit new linker behavior to configuration-bound validation.
+  > 
+  > Bootstrap installers:
+  > - Replace current-interpreter user-site installs with isolated managed roots at
+  >   `$HOME/.justdocs` on POSIX and `%LOCALAPPDATA%\justdocs` on Windows.
+  > - Create a dedicated virtualenv and managed `bin/justdocs[.exe]` command;
+  >   verify command execution with `justdocs version`.
+  > - Resolve the default GitHub source from the latest-release API and select
+  >   exactly one `justdocs-*-py3-none-any.whl`; retain explicit PyPI, URL,
+  >   source-spec, and GitHub-ref archive modes.
+  > - Bound release metadata to 2 MiB with a positive finite 10-second default
+  >   timeout; validate repository syntax, UTF-8 JSON shape, tag presence, asset
+  >   count, HTTPS GitHub host, and filename agreement.
+  > - Require Python 3.10 or newer and reject invalid Boolean controls or specs
+  >   beginning with pip options.
+  > - Require the `justdocs-managed-v1` ownership marker and reject filesystem
+  >   roots, user-home roots, Windows reparse roots, nonempty unmanaged roots,
+  >   invalid markers, and unowned commands.
+  > - Serialize installer mutation through recoverable POSIX PID locks or exclusive
+  >   Windows file locks; reject live lock owners.
+  > - Require exact managed symlink ownership on POSIX and SHA-256 executable
+  >   equality on Windows before replacement or removal.
+  > - Manage POSIX shell/fish profile blocks and Windows user PATH idempotently;
+  >   reject malformed POSIX marker blocks and remove duplicate Windows entries.
+  > - Expose dry-run output for venv, pip, command, and PATH operations without
+  >   acquiring the install lock or mutating the managed root.
+  > - Route source-tree global install and uninstall through the same platform
+  >   bootstrappers with explicit action, source root, and interpreter environment.
+  > 
+  > Self-update:
+  > - Bound PyPI and GitHub JSON to 2 MiB, require positive finite timeouts, and
+  >   distinguish HTTP 404 publication absence from transport or metadata failure.
+  > - Deduplicate requested sources, retain source warnings when a candidate
+  >   survives, and fail when transport errors leave no candidate.
+  > - Normalize versions with PEP 440 and select the newest candidate across
+  >   enabled sources.
+  > - Derive the GitHub repository only from canonical installed HTTPS metadata;
+  >   remove the hardcoded repository fallback.
+  > - Require canonical release HTML metadata and exactly one version-matched
+  >   `py3-none-any` wheel with an HTTPS GitHub download URL.
+  > - Install GitHub updates from release wheels instead of VCS checkouts.
+  > - Reject downgrades and explicit versions with ambiguous `auto` source; return
+  >   without pip execution when the installed version is current.
+  > - Infer `--user` only for base-interpreter distributions under user site and
+  >   omit it for virtualenv or system distributions.
+  > - Re-read installed metadata after pip and require exact normalized target
+  >   version equality.
+  > 
+  > Packaging and release automation:
+  > - Pin `setuptools==83.0.0`, add release extras `build==1.5.1` and
+  >   `twine==6.2.0`, and widen runtime packaging to `packaging>=24`.
+  > - Seed builds with `PYTHONHASHSEED=0` and the latest commit timestamp as
+  >   `SOURCE_DATE_EPOCH`.
+  > - Repack sdists in sorted PAX order with gzip mtime zero, normalized member
+  >   timestamps, zero UID/GID, empty owner names, and cleared pax headers.
+  > - Replace regex tag ordering with `packaging.version.Version`, discard invalid
+  >   PEP 440 tags, and derive prerelease state from `Version.is_prerelease`.
+  > - Require the release tag to equal the raw `pyproject.toml` version and retain
+  >   tagged-commit ancestry verification against remote `main`.
+  > - Percent-encode PyPI verification paths, use a 15-second interval,
+  >   600-second deadline, and 10-second request cap, reject non-finite bounds,
+  >   cap responses at 2 MiB, and require exact published-version equality.
+  > - Prefer PyPI trusted publishing, fall back to API-token authentication with
+  >   publisher attestations disabled, skip publication when neither is
+  >   configured, record the mode, and retain independent provenance attestation.
+  > - Stage sorted wheel and sdist artifacts through the shared release inventory
+  >   helper; remove inherited secrets and the unused reusable-build
+  >   `release_tag` input.
+  > - Install Python 3.12 plus `packaging>=24` before stable and nightly release
+  >   note generation.
+  > 
+  > Documentation and tests:
+  > - Rewrite README and example project/reference docs for canonical commands,
+  >   release-asset bootstrap URLs, isolated roots, PATH controls, uninstall,
+  >   stored-config precedence, typed errors, update semantics, and publishing
+  >   authentication.
+  > - Remove stale raw-main installers, user-site behavior, legacy command aliases,
+  >   static version claims, and the `packaging<26` contract from documentation.
+  > - Expand `tests/test_package.py` from 44 to 75 test methods with project JSON,
+  >   atomic/symlink writes, package parsing, CLI removals, and config precedence
+  >   coverage.
+  > - Add update tests for 404 handling, canonical repository and wheel metadata,
+  >   2 MiB bounds, PEP 440 selection, exact pip commands, no-op, downgrade,
+  >   ambiguous source, pip scope, and post-install verification.
+  > - Add installer tests for platform dry-runs, latest-wheel resolution, ownership
+  >   refusal, preserved external targets, stale/live locks, invalid controls, and
+  >   bootstrap delegation.
+  > - Add release tests for trusted/token publication, deterministic build markers,
+  >   PEP 440 tag ordering, polling bounds, artifact staging, and removed workflow
+  >   secret/input surfaces.
+  > - Add project-runtime tests for deterministic multi-root locking, strict MkDocs
+  >   builds, confined cleanup, symlink unlinking, PID parsing, and linker limits.
+  > - Enforce docs freshness by requiring canonical surfaces and rejecting removed
+  >   aliases and stale taxonomy.
+  > 
+  > Algorithmic bounds:
+  > - Let `L` be first-line bytes; read stored configuration in
+  >   O(min(L, 65,537)) time and space.
+  > - Let `r` be lock roots; discover and sort them in O(r log r) time and O(r)
+  >   space.
+  > - Let `a` be release assets; filter them in O(a) time and O(a) candidate space.
+  > - Let `m` be sdist members and `b` payload bytes; normalize them in
+  >   O(m log m + b) time, O(m) memory, and O(b) temporary disk.
+  > - Let `T` be polling duration and `i` interval; issue at most
+  >   floor(T / i) + 1 requests when request duration approaches zero.
+  > 
+  > Checks:
+  > - `PYTHONDONTWRITEBYTECODE=1 just check`: 75 tests pass; strict example build
+  >   completes.
+  > - `PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=. .venv/bin/python -m unittest
+  >   discover -s tests`: 75 tests pass in 0.973s.
+  > - `ruff check .`: pass.
+  > - `ruff format --check .`: 14 files already formatted.
+  > - `sh -n install.sh` plus Bash syntax checks for staged release scripts: pass.
+  > - `git diff --cached --check`: pass.
+  > - `PYTHONDONTWRITEBYTECODE=1 python3 -m unittest tests.test_package`: 74 of
+  >   75 pass; `test_release_versioning_orders_pep440_tags` receives no tags
+  >   because the staged helper invokes unavailable `python` and `mapfile` masks
+  >   that process-substitution failure.
+  > 
+  > Measurements:
+  > - Staged delta: 28 files, 3,090 insertions, 876 deletions, two new modules.
+  > - Test inventory: 44 -> 75 methods, +31 net.
+  > - Repo-native test run: 75 tests in 1.087s; example documentation build in
+  >   0.15s.
+- [`2493c0c`](https://github.com/FanaticPythoner/justdocs/commit/2493c0c4d760381123425444548805ca4ac81ce5) feat: make release publication transactional
+  > Replace direct tag mutation and unverified asset uploads with a versioned,
+  > journaled release transaction that snapshots immutable inputs, verifies remote
+  > identity around every mutation, and converges through commit-forward or
+  > rollback. Reconcile PyPI by exact filename and SHA-256 sets, pin workflows to
+  > immutable commits and artifact digests, tighten dependency automation, and add
+  > deterministic fault-injection coverage.
+  > 
+  > Transactional GitHub releases:
+  > - add `preflight`, `publish`, and `cleanup` commands with typed errors, exit code
+  >   2, SIGINT/SIGTERM handling, and exclusive per-transaction locking
+  > - model release assets, release state, and transaction metadata as frozen data
+  >   classes updated through immutable replacements
+  > - persist schema-version-4 journals as compact sorted JSON through exclusive
+  >   temporary files, file and directory fsyncs, and atomic replacement
+  > - track original and target tag SHAs, original and prepared release snapshots,
+  >   desired metadata, desired asset digests, created release identity, owned asset
+  >   IDs, and transaction phase
+  > - enforce phase invariants across `preflight`, `prepared`, `mutating`, `tagging`,
+  >   `committing`, `committed`, `rolled_back`, and `rolled_back_with_tag`
+  > - reject malformed journals, unknown fields, invalid IDs, invalid digests,
+  >   inconsistent snapshots, noncanonical parents, repository drift, and boundary
+  >   escapes
+  > - validate repository identity, tag syntax, Boolean operands, target commit, and
+  >   transaction parent before creating a journal
+  > - resolve target commits through GitHub and require tags without movement enabled
+  >   to reference the exact release commit
+  > - compare existing `latest` targets against the requested commit and permit only
+  >   `ahead` or `identical` movement
+  > - compare-and-set remote tags against the preflight SHA, use non-forced ref
+  >   updates, and verify the resulting target
+  > - sample release metadata before and after paginated asset enumeration to reject
+  >   concurrent release changes
+  > - validate positive release and asset IDs, strict Boolean fields, unique asset
+  >   names, uploaded or starter states, sizes, content types, and SHA-256 digests
+  > - reject incomplete existing uploads before mutation
+  > - verify staged snapshots, notes bytes, asset hashes, and asset sizes before
+  >   preparation and again immediately before uploads
+  > - create absent releases as marker-owned drafts tied to the exact target commit,
+  >   persist the created ID, apply desired metadata, upload assets, and publish only
+  >   after exact prepared-state verification
+  > - transform existing releases into non-latest drafts, rename selected originals
+  >   to database-ID rollback names, upload replacements, move the tag, delete
+  >   retained originals, and publish in deterministic order
+  > - preserve noncolliding original assets when purge is disabled and replace the
+  >   complete original inventory when purge is enabled
+  > - upload through verified regular-file descriptors under deterministic temporary
+  >   names derived from the transaction and final filename
+  > - persist every returned upload ID before further mutation, rename uploads into
+  >   final names, and verify ID, label, MIME type, digest, size, and uploaded state
+  > - treat exact immutable releases as mutation-free committed transactions and
+  >   reject immutable releases that differ from staged metadata or assets
+  > - recover `tagging` and `committing` journals by completing publication forward,
+  >   including accepted publish or delete operations whose client call failed
+  > - recover `mutating` journals by deleting transaction-owned assets, restoring
+  >   original asset names and metadata, restoring release flags and text, or
+  >   deleting a marker-owned newly created release
+  > - preserve an implicitly created target tag as `rolled_back_with_tag` when no
+  >   original tag existed, permitting a later independent transaction to converge
+  > - delete transaction-owned starter uploads left by failed asset requests
+  > - reject and preserve unknown concurrent assets, externally replaced drafts,
+  >   reserved-name collisions, asset-ID drift, and indeterminate ownership
+  > - retain recovery journals when rollback cannot prove safe ownership
+  > - recover active journals during cleanup and remove transaction directories only
+  >   after reaching a terminal phase
+  > - use GitHub GraphQL for stable release and tag snapshots and REST API version
+  >   `2026-03-10` for commit, comparison, ref, release, and asset operations
+  > 
+  > Release-input snapshots:
+  > - add `stage`, `verify`, and `cleanup` commands with snapshot schema version 2
+  > - confine distribution and notes operands beneath `GITHUB_WORKSPACE`
+  > - accept a lexical workspace alias while rejecting symlinks inside the
+  >   workspace-relative path
+  > - require `O_DIRECTORY`, `O_NOFOLLOW`, and `O_NONBLOCK` instead of weakening
+  >   filesystem checks on unsupported platforms
+  > - require exact manifest lines containing 64 lowercase SHA-256 characters, two
+  >   spaces, and a confined basename
+  > - reject empty manifests, duplicate or self entries, extra or missing files,
+  >   symlinks, directories, FIFOs, unreadable files, and digest mismatches
+  > - create private `justdocs-release-*` roots under a nonsymlink `RUNNER_TEMP`
+  > - copy assets and optional notes through bound descriptors in 1 MiB chunks,
+  >   create files exclusively, flush and fsync bytes, and set copied files to mode
+  >   `0400`
+  > - preserve the literal `SHA256SUMS.txt` bytes and record its digest with every
+  >   asset and optional notes digest
+  > - serialize deterministic `snapshot.json` metadata and restrict the asset
+  >   directory to mode `0500`
+  > - verify exact metadata keys, integer snapshot version, root identity, asset
+  >   inventory, asset hashes, notes hash, and root inventory
+  > - keep staged bytes independent from later source artifact or notes mutation
+  > - clean partial snapshots after setup or copy failures and retain both primary
+  >   and cleanup errors when removal fails
+  > - constrain cleanup to the named child of the supplied parent, reject symlinks
+  >   and special entries, and compare root device and inode before removal
+  > - retain `O(B + n log n)` staging and verification time with `O(n + 1 MiB)`
+  >   auxiliary state for `B` bytes and `n` assets
+  > 
+  > PyPI reconciliation:
+  > - add typed local-artifact, remote-query, and artifact-mismatch errors
+  > - bind local wheel and source distributions to no-follow descriptors and hash
+  >   them in 1 MiB chunks
+  > - query percent-encoded package and version endpoints with JSON headers, a
+  >   15-second request bound, and a 4 MiB response ceiling
+  > - classify HTTP 404 as `absent` and reject other HTTP, transport, encoding, JSON,
+  >   and response-shape failures explicitly
+  > - compare versions through PEP 440 normalization, including equality between
+  >   forms such as `1.2.3` and `1.2.3.0`
+  > - require unique nonempty remote filenames and exact lowercase SHA-256 metadata
+  > - return deterministic `absent`, `partial`, or `exact` states with sorted missing
+  >   inventories
+  > - reject unexpected remote filenames or mismatched shared-file digests
+  > - stage only missing files into a previously absent destination using exclusive
+  >   mode-`0400` outputs, fsync, byte-count checks, and post-copy hash verification
+  > - remove partial staging destinations after failure and report cleanup failure
+  >   alongside the primary error
+  > - poll with a monotonic deadline, shrinking request bounds, retrying transient
+  >   remote failures and incomplete states while propagating artifact mismatches
+  > - validate interval and total duration as positive finite values
+  > - delegate `verify-pypi.py` to the exact artifact checker through the active
+  >   interpreter and pass `artifacts/release` from the shell wrapper
+  > - remove the 21-line `release-artifacts.sh` path-only inventory helper
+  > 
+  > Release workflows:
+  > - validate action inputs and stage immutable bytes before any GitHub mutation
+  > - route action operands through environment variables, log values with `printf
+  >   %q`, and avoid raw workflow expressions inside shell bodies
+  > - derive transaction targets from checked-out `HEAD^{commit}` instead of the
+  >   workflow event SHA
+  > - replace force-pushed tags, direct release create/edit, direct asset deletion,
+  >   and `gh release upload --clobber` with transaction preflight and publication
+  > - preserve staging and preflight failures while surfacing cleanup failures
+  > - run final transaction and snapshot cleanup unconditionally and attempt both
+  >   removals independently
+  > - upgrade checkout to v7, upload-artifact to v7, download-artifact to v8, CodeQL
+  >   to v4, and build-provenance attestation to v4
+  > - archive both distribution uploads and reject digest mismatches on all five
+  >   distribution downloads
+  > - add a CI artifact round trip that downloads `justdocs-python-dist` and verifies
+  >   `SHA256SUMS.txt`
+  > - replace pattern-based merged downloads with exact named `python-dist`
+  >   retrieval
+  > - require a tag for manual stable releases and serialize runs by dispatch tag or
+  >   pushed ref name
+  > - check out the selected stable tag, validate event type and SHA, and carry the
+  >   resolved immutable commit through build and publication
+  > - fetch `origin/main` for latest releases, require checked-out HEAD equality,
+  >   and derive full and 12-character release SHAs from the fetched commit
+  > - disable latest-run cancellation so an active publication reaches a terminal
+  >   transaction phase
+  > - inspect PyPI before credential selection, skip uploads for exact existing
+  >   artifacts, and stage only missing distributions for absent or partial states
+  > - select trusted publishing before API-token authentication and expose
+  >   `existing`, `trusted`, `token`, and `none` publication modes
+  > - reject unknown PyPI classifications with exit code 2
+  > - provision Python 3.12, exact downloaded artifacts, digest checks, and
+  >   `packaging>=24` in the public PyPI verification job
+  > - pass release-note and publication values through environment variables instead
+  >   of interpolating expressions into executable shell
+  > 
+  > Release metadata and platform tooling:
+  > - add shared validators for exact lowercase Booleans, Git-compatible tags,
+  >   control-free release names, and canonical `OWNER/REPOSITORY` identities
+  > - constrain owners to 1..39 valid characters and repository names to 1..100
+  >   valid characters while excluding malformed hyphen and dot forms
+  > - replace Bash nameref and `mapfile` tag selection with a Bash-3.2-compatible
+  >   Python implementation
+  > - resolve Python from `PYTHON_BIN` or `python3`, require Python 3.10+, return 127
+  >   for a missing executable, and preserve interpreter failures
+  > - ignore invalid version tags, order valid tags by PEP 440 plus literal tag, and
+  >   select the highest or first strictly lower semantic version
+  > - dispatch release metadata by `workflow_dispatch` or tag `push` and reject
+  >   unsupported events or nontag pushes
+  > - require fetched tag, checked-out HEAD, and push event SHA to resolve to the
+  >   same commit
+  > - emit `release_ref` as the immutable release SHA instead of the mutable tag
+  > - wrap PowerShell interpreter resolution in array syntax to preserve one-token
+  >   paths and multi-token `py -3` prefixes
+  > - quote the POSIX `profile_kind='sh'` assignment
+  > - preserve Markdown commit-link backticks through the release-note `printf`
+  >   format
+  > - ignore the complete `TODOS_LISTS/` tree and `.tmp-workflow-tools/`
+  > 
+  > Security automation:
+  > - group all GitHub Actions dependency changes under one weekly Dependabot group
+  > - replace pull-request-only dependency review with pinned `pip-audit==2.10.1`
+  >   strict resolved-project auditing across every security workflow trigger
+  > - retain Python and Actions CodeQL matrices while upgrading initialization and
+  >   analysis to v4
+  > 
+  > Tests:
+  > - add 26 test methods, including 15 transactional release scenarios
+  > - add a stateful fake GitHub CLI covering GraphQL reads, paginated assets,
+  >   commits, comparisons, refs, releases, binary uploads, renames, deletes, and
+  >   deterministic failure injection
+  > - cover immutable exact no-op and mismatch rejection, malformed operands,
+  >   release-query races, nonmonotonic latest movement, and tag compare-and-set
+  >   failures
+  > - verify absent-release marker creation, payloads, target SHA, temporary upload
+  >   naming, MIME types, digests, journal contents, and final publication
+  > - cover create failure, post-create query failure, external marker replacement,
+  >   retained-target-tag retry, purge and preserve modes, and exact mutation order
+  > - inject failures after retained deletes and publish patches plus process death
+  >   after tag movement, partial deletion, partial upload, and final publication
+  > - prove commit-forward convergence after irreversible boundaries and rollback
+  >   before those boundaries
+  > - verify starter cleanup, asset-ID preservation, unknown concurrent-asset
+  >   preservation, successful committing-phase reconciliation, and interrupted
+  >   cleanup recovery
+  > - execute composite-action cleanup against real transaction and snapshot roots
+  >   and require an empty runner temporary directory
+  > - cover one valid action input set and 22 fail-closed Boolean, tag, path,
+  >   permission, directory, FIFO, and symlink cases
+  > - cover workspace aliases, internal symlinks, source mutation independence,
+  >   asset and notes tampering, malformed metadata, extra inventories, cleanup
+  >   boundaries, partial cleanup failure, and setup failure residue
+  > - classify absent, exact, normalized, partial, mismatched, transient, and HTTP
+  >   500 PyPI responses and verify missing-only staging
+  > - assert shrinking PyPI request bounds of 9, 7, and 5 seconds
+  > - cover Bash 3.2 source constraints, PEP 440 alias ordering, interpreter exit
+  >   propagation, and missing-interpreter exit 127
+  > - require resolved force-overwrite project paths and reject user-site prefix
+  >   collisions when selecting pip scope
+  > - assert PowerShell array initialization and complete configured-interpreter
+  >   dry-run output
+  > - extend workflow contracts for transaction ordering, checked-out commit
+  >   targeting, expression confinement, action versions, artifact names, digest
+  >   gates, and helper removal
+  > 
+  > Checks:
+  > - `git diff --cached --check`: pass, no output
+  > - `bash -n install.sh scripts/release/github-repository.sh
+  >   scripts/release/release-versioning.sh
+  >   scripts/release/resolve-release-metadata.sh scripts/release/verify-pypi.sh
+  >   scripts/release/write-release-notes.sh`: pass
+  > - `PYTHONDONTWRITEBYTECODE=1 python3 -m unittest discover -s tests`: 100 tests
+  >   run in 46.167 seconds, 1 failure in
+  >   `test_release_pipeline_uses_dist_action_pypi_publish_and_release_assets`
+  > - the failing staged counter expects setup-python 7, download-artifact 4, and
+  >   dependency-review v5 once; staged workflows contain setup-python 9,
+  >   download-artifact 5, and no dependency-review action
+  > - later staged assertions also expect four digest gates, four `python-dist`
+  >   names, and the prior concurrency expression; staged workflows contain five
+  >   digest gates, five names, and event-aware tag concurrency
+  > 
+  > Measurements:
+  > - staged index: 21 files changed, 7,060 insertions, 330 deletions
+  > - major additions: 2,259-line transaction engine, 533-line snapshot engine,
+  >   380-line PyPI reconciler, and 3,429 added test lines
+- [`add19ae`](https://github.com/FanaticPythoner/justdocs/commit/add19aededca27c0b8ef07e0e66d2035325aeb00) fix: harden cross-platform release filesystem boundaries
+  > Make PyPI artifact binding native on Windows and canonicalize trusted POSIX
+  > system aliases without weakening descriptor-relative confinement. Rework
+  > snapshot and transaction boundaries around canonical parents, then replace
+  > brittle global workflow counts with source-local and step-local contracts.
+  > 
+  > Windows artifact binding:
+  > - add conditional ctypes bindings for CreateFileW, GetFileInformationByHandle,
+  >   GetFileInformationByHandleEx, GetFileType, and CloseHandle
+  > - model stable identity as a 64-bit volume serial plus 128-bit file ID
+  > - capture handle attributes, 64-bit size, and 64-bit last-write time
+  > - open every ancestor from the filesystem root through the artifact directory
+  >   before inventory enumeration
+  > - retain ancestor handles with read/write sharing but no delete sharing
+  > - open artifact files with read-only sharing to deny concurrent writes,
+  >   deletion, and renaming
+  > - inspect reparse points directly with FILE_FLAG_OPEN_REPARSE_POINT
+  > - reject non-disk handles, reparse points, and directory/file type mismatches
+  > - transfer native file handles into noninheritable binary CRT descriptors
+  >   without double-closing ownership
+  > - hash retained descriptors and reject identity, attribute, size, or write-time
+  >   changes after reading
+  > - rescan the distribution directory and require exact ordered inventory
+  >   equality after artifact binding
+  > - recheck every ancestor identity and leaf-directory state before exposing
+  >   bound artifacts
+  > - close artifact descriptors before directory handles and release ancestors in
+  >   reverse acquisition order
+  > - preserve Win32 failures through use_last_error and typed PyPIArtifactError
+  >   translation
+  > 
+  > Cross-platform artifact inventory:
+  > - centralize wheel and sdist enumeration for path-based and descriptor-based
+  >   directory scans
+  > - accept only .whl and .tar.gz regular files
+  > - reject symlink entries, nonregular entries, empty inventories, and duplicate
+  >   names
+  > - return immutable lexicographically sorted artifact names
+  > - preserve O_DIRECTORY, O_NOFOLLOW, O_NONBLOCK, and dir_fd confinement on
+  >   POSIX
+  > - dispatch transparently between native Windows and existing POSIX binders
+  >   through the unchanged _open_local_artifacts contract
+  > 
+  > Secure POSIX paths:
+  > - add SecurePathError and shared O_RDONLY | O_DIRECTORY | O_NOFOLLOW flag
+  >   validation
+  > - open absolute directories component-by-component relative to the preceding
+  >   descriptor
+  > - reject nonabsolute paths, explicit parent traversal, missing flags, and
+  >   descendant symlinks
+  > - permit only first-component system aliases owned by UID 0 beneath a UID-0,
+  >   non-group-writable, non-world-writable filesystem root
+  > - bind trusted aliases through device, inode, mode, owner, size, mtime, and
+  >   ctime identity
+  > - compare alias identity before and after readlink, securely open the canonical
+  >   target, then verify the original alias again
+  > - normalize absolute and relative alias targets before appending remaining path
+  >   components
+  > - canonicalize child parents while preserving final basenames for later
+  >   descriptor-relative no-follow opens
+  > - replace duplicated path traversal in snapshot and transaction engines with
+  >   domain-specific error translation wrappers
+  > 
+  > Snapshot lifecycle:
+  > - map workspace-relative operands directly beneath the resolved workspace after
+  >   per-component symlink checks
+  > - canonicalize absolute RUNNER_TEMP paths while retaining final-component
+  >   symlink rejection
+  > - accept root-owned system aliases such as macOS /var to /private/var without
+  >   admitting nested writable aliases
+  > - verify each mkdtemp result remains an immediate child of the canonical stage
+  >   parent before writing snapshot data
+  > - pass canonical parent and root identities explicitly into partial-failure
+  >   cleanup
+  > - reject cleanup when the created root does not belong to the supplied
+  >   canonical parent
+  > - canonicalize snapshot parents during verify and cleanup while retaining
+  >   prefix, inventory, digest, permission, device, and inode checks
+  > - preserve snapshot schema version 2 and existing manifest semantics
+  > 
+  > Transaction boundaries:
+  > - canonicalize transaction parents through the shared secure POSIX path layer
+  > - report invalid parents as expected secure directories
+  > - verify each preflight transaction root remains beneath its canonical parent
+  >   before journal creation
+  > - canonicalize caller-supplied transaction-root parents before descriptor-bound
+  >   journal loading
+  > - require persisted parent metadata to be absolute, abspath-normalized, securely
+  >   canonical, and already stored in canonical spelling
+  > - reject transaction roots whose parent differs from canonical journal metadata
+  > - canonicalize staged distribution directories without unrestricted
+  >   resolve(strict=True) traversal
+  > - require staged distributions to remain the verified assets directory
+  > - canonicalize release-note parents while requiring the exact
+  >   release-notes.md child
+  > - preserve transaction schema version 4, release state transitions, GitHub
+  >   mutation ordering, and recovery semantics
+  > 
+  > Workflow contract tests:
+  > - replace one repository-wide action Counter with exact per-source action sets
+  > - require 5 CI, 5 Latest, 7 Release, 3 reusable-build, 4 Security, 1
+  >   build-composite, and 0 release-composite unique action references
+  > - parse individual six-space-indented workflow steps instead of comparing
+  >   offsettable global text counts
+  > - require every download-artifact v8 step to set digest-mismatch: error
+  > - require justdocs-python-dist for CI transfers and python-dist for Latest and
+  >   Release transfers
+  > - require every upload-artifact v7 step to set archive: true
+  > - require justdocs-python-dist for CI uploads and python-dist for reusable
+  >   build uploads
+  > - require pip-audit==2.10.1 with strict resolved-project auditing
+  > - require removal of dependency-review-action from the Security contract
+  > - require manual releases to group by inputs.tag and other release events by
+  >   github.ref_name
+  > - require cancel-in-progress: false for Release and Latest publication groups
+  > 
+  > Platform regression tests:
+  > - reject a directory named invalid.whl as malformed local inventory before any
+  >   PyPI request
+  > - require Windows-bound wheels to reject concurrent overwrite and rename
+  >   attempts
+  > - prove Windows file handles release after leaving the binding context
+  > - create a Windows directory junction with mklink /J and reject it before any
+  >   PyPI request
+  > - discover trusted root aliases from /var, /tmp, /bin, /sbin, and /lib
+  > - require trusted UID-0 aliases to resolve to their absolute targets
+  > - reject temporary user-owned directory aliases with SecurePathError
+  > - increase the test-method inventory from 100 to 101
+  > 
+  > Complexity:
+  > - retain Windows binding time O(d + e + B) for path depth d, directory entries
+  >   e, and aggregate artifact bytes B
+  > - retain Windows auxiliary state O(d + n + 1 MiB) with d ancestor handles and
+  >   n artifact descriptors
+  > - retain POSIX artifact time O(e + B) and state O(n + 1 MiB)
+  > - bound secure POSIX canonical traversal to O(d) opens and O(1) live traversal
+  >   descriptors
+  > 
+  > Checks:
+  > - git diff --cached --check: pass with no output
+  > - PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=. python3 -m unittest discover -s tests:
+  >   101 tests pass on Linux in 43.936 seconds
+  > - Ruff check: pass
+  > - Ruff format check: 5 changed Python files formatted
+  > - Actionlint 1.7.12: pass for all GitHub workflows
+  > - ShellCheck 0.11.0: pass for installer and release shell scripts
+  > - SOURCE_DATE_EPOCH=0 PYTHONHASHSEED=0 just dist: wheel and sdist build
+  > - SHA256SUMS.txt verification: pass for every release artifact
+  > - Twine 6.2.0: wheel and sdist metadata pass
+  > - read-only latest preflight against FanaticPythoner/justdocs at
+  >   2493c0c4d760381123425444548805ca4ac81ce5: pass with local journal cleanup
+  > - hosted Windows and macOS reruns are not claimed by local evidence
+  > 
+  > Measurements:
+  > - staged index: 5 files changed, 862 insertions, 232 deletions
+  > - new secure POSIX helper: 163 lines
+  > - POSIX 2 MiB artifact-binding benchmark, 400 alternating samples:
+  >   baseline p50 2.6244 ms, p95 3.3116 ms, 762.1 MiB/s
+  > - repaired POSIX binding: p50 2.6133 ms, p95 3.3126 ms, 765.3 MiB/s
+  > - baseline and repaired peak RSS: 22,348 KiB
+- [`35949a6`](https://github.com/FanaticPythoner/justdocs/commit/35949a61da3db21511d730ad0351244cc0d2272d) feat: harden release transactions and recover detached latest releases
+  > Strengthens release publication, rollback, filesystem confinement, and legacy
+  > latest-release recovery across the staged release pipeline.
+  > 
+  > Release transaction recovery:
+  > - Persist transaction version 6 journals with root identity, creation-attempt
+  >   state, pre-create release inventory, owned asset IDs, and phase invariants.
+  > - Serialize transaction access with an exclusive descriptor lock.
+  > - Verify transaction root device and inode identity before journal reads,
+  >   mutations, recovery, and cleanup.
+  > - Recover release creation failures by identifying exactly one post-baseline
+  >   draft marked with the transaction identity.
+  > - Preserve externally modified or published releases when rollback ownership is
+  >   indeterminate.
+  > - Reconcile tagging and committing phases forward when the publish mutation
+  >   already succeeded.
+  > - Restore original release metadata, tag ownership, asset names, asset IDs,
+  >   and observable asset contents with post-mutation verification.
+  > - Detect lost journals, detached transaction releases, marker releases, and
+  >   reserved transaction assets before further GitHub mutations.
+  > - Reject pre-existing draft releases, incomplete uploads, concurrent release
+  >   changes, tag ownership changes, and non-monotonic tag movement.
+  > - Reserve `justdocs-rollback-*` and `justdocs-upload-*` asset names against
+  >   staged and pre-existing release assets.
+  > - Use exclusive descriptor-relative JSON writes with explicit regular-file
+  >   validation and durable flushes.
+  > - Require transaction cleanup to authenticate the original root identity,
+  >   recover active phases, and remove only terminal transaction trees.
+  > 
+  > GitHub transport and API verification:
+  > - Require curl 7.76.0 or newer and readable `/dev/fd` descriptor semantics
+  >   during preflight.
+  > - Construct authorization headers through a pipe-backed descriptor and remove
+  >   `GH_TOKEN` and `GITHUB_TOKEN` from the curl child environment.
+  > - Supply exact content lengths for authenticated upload and JSON requests.
+  > - Reject unsafe authorization tokens, malformed curl commands, invalid response
+  >   encodings, missing executables, and non-regular transaction inputs.
+  > - Parse release metadata with strict type, identity, asset-name, digest, and
+  >   pagination checks.
+  > - Query release metadata and assets around stable before-and-after snapshots to
+  >   detect concurrent GitHub mutations.
+  > - Verify release creation responses contain the expected draft marker, target
+  >   commit, prerelease state, and empty asset set.
+  > 
+  > Detached latest recovery:
+  > - Add `recover-detached latest` for the
+  >   `FanaticPythoner/justdocs` repository only.
+  > - Identify detached GitHub Actions releases through exact tag, author, name,
+  >   description, target-commit, prerelease, draft, and five-asset invariants.
+  > - Stream and verify detached asset bytes against GitHub-provided size and
+  >   SHA-256 metadata.
+  > - Parse the four-entry `SHA256SUMS.txt` manifest and map each digest to its
+  >   installer, wheel, and source distribution.
+  > - Rename assets through deterministic rollback names, persist progress through
+  >   each boundary, and verify every rename before continuing.
+  > - Rebind the recovered release to `latest`, publish it as prerelease, and
+  >   verify final release, tag, asset, and residue invariants.
+  > - Treat already-bound releases as idempotent no-ops while still scanning for
+  >   detached transaction residue.
+  > - Reject malformed manifests, duplicate candidates, altered asset metadata,
+  >   changed tags, unexpected detached refs, invalid authors, and ambiguous
+  >   recovery states.
+  > 
+  > Secure snapshot staging:
+  > - Introduce `BoundCreatedDirectory` bindings containing parent descriptor,
+  >   directory descriptor, device, and inode identity.
+  > - Bind newly created snapshot roots to the expected parent and required
+  >   `justdocs-release-` prefix before population or cleanup.
+  > - Perform asset, manifest, metadata, and notes writes relative to retained
+  >   directory descriptors with `O_NOFOLLOW`, exclusive creation, mode
+  >   hardening, and `fsync`.
+  > - Verify directory-entry identity after opening, staging, recursive cleanup,
+  >   and before root removal.
+  > - Detect nested directory substitution, snapshot-root replacement, inventory
+  >   tampering, and cleanup races.
+  > - Centralize the snapshot prefix and retain snapshot metadata version 2.
+  > 
+  > Workflow coordination:
+  > - Serialize release mutation jobs per repository in `latest.yml` and
+  >   `release.yml` with non-canceling queued concurrency.
+  > - Run detached latest recovery before latest-release preflight.
+  > 
+  > Tests and fixtures:
+  > - Extend the transactional GitHub fixture with REST and GraphQL-like metadata,
+  >   pagination, asset streaming, tag races, release races, crash injection,
+  >   partial uploads, external mutation, and transport-failure scenarios.
+  > - Cover absent-release creation, existing-release replacement, immutable-release
+  >   no-op and mismatch handling, rollback, commit-forward recovery, cleanup
+  >   recovery, retained assets, asset-ID preservation, and residue detection.
+  > - Cover every detached latest recovery boundary, terminal convergence,
+  >   idempotent execution, invalid profiles, duplicate candidates, transport
+  >   validation, and repository/tag scoping.
+  > - Cover secure descriptor binding, symlink boundaries, inventory tampering,
+  >   nested substitution, partial cleanup failure, and setup failure cleanup.
+  > - Preserve exact mutation assertions ensuring unknown-length standard-input
+  >   mutations are rejected.
+  > 
+  > Checks:
+  > - `git diff --cached --check` exits cleanly.
+  > - `python3 -m unittest tests.test_package -k release` passes 44 tests in
+  >   72.112 seconds.
+  > - Six targeted secure snapshot and path-boundary tests pass in 1.407 seconds.
+  > 
+  > Measurements:
+  > - Staged index: 7 modified files, 3,874 insertions, 391 deletions.
+- [`2b18875`](https://github.com/FanaticPythoner/justdocs/commit/2b1887590b302e643115fd92b07f1b54806df5b1) macos fix
+- [`7b16366`](https://github.com/FanaticPythoner/justdocs/commit/7b16366b4b74c7ae14ed9d5aeb9165fff7841c56) feat(release): automate verified Python package publication
+  > Release preparation:
+  > - Add `just next-release` with patch, minor, and major SemVer increments.
+  > - Require a clean default branch synchronized with its remote before release preparation.
+  > - Generate dated changelog entries from the Unreleased section and chronological NUL-delimited Git records.
+  > - Atomically replace version and changelog files with preserved modes, file fsync, directory fsync, and symlink rejection.
+  > - Create the version commit and annotated tag locally; require `--push` for an atomic branch-and-tag push.
+  > - Generate stable release notes from the resulting immutable tag boundary.
+  > 
+  > Publication:
+  > - Default PyPI publication to OIDC trusted publishing when no API token is configured.
+  > - Retain `PYPI_API_TOKEN` as an explicit authenticated publication path.
+  > - Remove the repository-variable gate and the silent no-publication mode.
+  > - Require PyPI completion before GitHub Release creation.
+  > - Verify the public GitHub release tag target, title, notes, draft state, prerelease state, latest-release binding, asset inventory, byte lengths, and SHA-256 digests.
+  > - Resolve annotated tag chains through at most eight validated Git objects.
+  > - Bound GitHub REST responses to 2 MiB and reject malformed identities, JSON, tags, metadata, and local artifact paths.
+  > 
+  > PR distributions:
+  > - Retain CI distribution artifacts for 90 days with overwrite semantics.
+  > - Add a trusted `workflow_run` publisher with minimal read and pull-request write permissions.
+  > - Check out only the default-branch implementation with persisted credentials disabled.
+  > - Validate the completed CI run identity, pull-request binding, commit SHA, artifact uniqueness, expiry, byte length, and SHA-256 digest.
+  > - Create or replace exactly one marker-bound `github-actions[bot]` comment.
+  > - Publish artifact, workflow, expiry, digest, and isolated-install security metadata without executing pull-request code under write permissions.
+  > - Bound API responses to 4 MiB and comment traversal to 10,000 entries.
+  > 
+  > Supply chain:
+  > - Pin checkout, Python setup, artifact upload and download, PyPI publication, provenance attestation, and CodeQL actions to immutable 40-hex revisions.
+  > - Preserve human-readable action release annotations beside each pinned revision.
+  > - Extend workflow contract tests to reject every unpinned external action reference.
+  > - Verify downloaded artifact digests and retain provenance attestation for wheel, source archive, installers, and checksum manifest.
+  > 
+  > Packaging and documentation:
+  > - Add persistent release history in `CHANGELOG.md`.
+  > - Include changelog, license, and README files in source distributions through `MANIFEST.in`.
+  > - Expose the changelog through package project metadata.
+  > - Replace Bash `mapfile` usage with a portable NUL-delimited read loop.
+  > - Document trusted-publisher identity, token fallback, release commands, publication invariants, PR artifacts, and public digest verification.
+  > - Synchronize release guidance across the README and bundled example documentation.
+  > 
+  > Tests:
+  > - Add an isolated Git repository test covering initial changelog generation, release commit creation, annotated tagging, release-note generation, and no implicit remote tag publication.
+  > - Add PR comment tests covering rendered artifact metadata, workflow-event binding, artifact selection, bot ownership, and spoofed user-comment rejection.
+  > - Add exact local-to-remote GitHub asset size and SHA-256 equivalence coverage.
+  > - Expand packaging and workflow assertions for pinned actions, trusted publication defaults, artifact retention, release verification, manifest contents, and documentation surfaces.
+  > 
+  > Checks:
+  > - `PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=. python3 -m unittest discover -s tests`: 124 tests passed in 134.462 seconds.
+  > - `SOURCE_DATE_EPOCH=0 PYTHONHASHSEED=0 just dist`: wheel and source distribution built; Twine checks passed.
+  > - Two deterministic builds produced byte-identical wheel, source archive, installers, and checksum manifest.
+  > - Isolated wheel installation, project initialization, project checking, and strict documentation build passed.
+  > - Ruff checking, Ruff formatting verification, Python byte-compilation, and 33 ShellCheck Bash-block checks passed.
+  > - Actionlint reported two schema diagnostics for the GitHub-supported `queue: max` expression and no other diagnostics.
+  > - `git diff --cached --check` reports `CHANGELOG.md:16: new blank line at EOF`.
+  > 
+  > Measurements:
+  > - Staged scope: 19 files, 1,531 insertions, 76 deletions.
+  > - File topology: 6 additions and 13 modifications.
+  > - Test topology: 405 insertions and 27 deletions in the package contract suite.
+  > - Test inventory: 124 test methods.
+  > - Release assets verified across 5 byte-identical outputs.
