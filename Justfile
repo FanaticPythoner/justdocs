@@ -33,6 +33,9 @@ test: install
 dist: install
     @PYTHON_BIN={{venv_python}} bash scripts/release/build-python-package.sh
 
+next-release *args:
+    @PYTHON_BIN={{python}} {{python}} scripts/release/create-next-release.py {{args}}
+
 example-build: example-justfile
     @cd examples/basic && PATH="../../.venv/bin:$PATH" just check
 

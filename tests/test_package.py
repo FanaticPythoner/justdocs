@@ -1720,6 +1720,9 @@ class ThemePackageTest(unittest.TestCase):
     ) -> None:
         release = Path(".github/workflows/release.yml").read_text(encoding="utf-8")
         latest = Path(".github/workflows/latest.yml").read_text(encoding="utf-8")
+        pr_distribution = Path(
+            ".github/workflows/pr-python-dist-comment.yml"
+        ).read_text(encoding="utf-8")
         ci = Path(".github/workflows/ci.yml").read_text(encoding="utf-8")
         build_action = Path(".github/actions/build-dist/action.yml").read_text(
             encoding="utf-8"
@@ -1736,17 +1739,54 @@ class ThemePackageTest(unittest.TestCase):
         metadata_script = Path("scripts/release/resolve-release-metadata.sh").read_text(
             encoding="utf-8"
         )
+        release_notes_script = Path("scripts/release/write-release-notes.sh").read_text(
+            encoding="utf-8"
+        )
+        create_next_release = Path("scripts/release/create-next-release.py").read_text(
+            encoding="utf-8"
+        )
+        verify_github_release = Path(
+            "scripts/release/verify-github-release.py"
+        ).read_text(encoding="utf-8")
+        sync_pr_distribution = Path(
+            "scripts/ci/sync-pr-python-dist-comment.py"
+        ).read_text(encoding="utf-8")
         reusable = Path(
             ".github/workflows/reusable-build-python-package.yml"
         ).read_text(encoding="utf-8")
         security = Path(".github/workflows/security.yml").read_text(encoding="utf-8")
         dependabot = Path(".github/dependabot.yml").read_text(encoding="utf-8")
         pyproject = Path("pyproject.toml").read_text(encoding="utf-8")
-        workflows = "\n".join((ci, latest, release, reusable, security))
+        checkout_action = "actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0"
+        setup_python_action = (
+            "actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1"
+        )
+        upload_action = (
+            "actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a"
+        )
+        download_action = (
+            "actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c"
+        )
+        pypi_action = (
+            "pypa/gh-action-pypi-publish@cef221092ed1bacb1cc03d23a2d87d1d172e277b"
+        )
+        attest_action = (
+            "actions/attest-build-provenance@78e6cbd37d0ac1a40113c04f2037dacf1ea3f12e"
+        )
+        codeql_init_action = (
+            "github/codeql-action/init@1ad29ea4a422cce9a242a9fae469541dcd08addc"
+        )
+        codeql_analyze_action = (
+            "github/codeql-action/analyze@1ad29ea4a422cce9a242a9fae469541dcd08addc"
+        )
+        workflows = "\n".join(
+            (ci, latest, release, reusable, security, pr_distribution)
+        )
         action_sources = {
             "ci": ci,
             "latest": latest,
             "release": release,
+            "pr-distribution": pr_distribution,
             "reusable": reusable,
             "security": security,
             "build-action": build_action,
@@ -1754,12 +1794,18 @@ class ThemePackageTest(unittest.TestCase):
         }
         action_refs = {
             source_name: {
-                line.split("uses:", 1)[1].strip()
+                line.split("uses:", 1)[1].split(" #", 1)[0].strip()
                 for line in source.splitlines()
                 if line.lstrip().startswith("uses: ")
             }
             for source_name, source in action_sources.items()
         }
+        for source_name, references in action_refs.items():
+            for reference in references:
+                if reference.startswith("./"):
+                    continue
+                with self.subTest(source=source_name, action=reference):
+                    self.assertRegex(reference, r"^[^@]+@[0-9a-f]{40}$")
 
         def workflow_steps(source: str) -> tuple[str, ...]:
             lines = source.splitlines()
@@ -1777,11 +1823,13 @@ class ThemePackageTest(unittest.TestCase):
                 steps.append("\n".join(lines[start:end]))
             return tuple(steps)
 
-        self.assertIn("pypa/gh-action-pypi-publish@release/v1", release)
+        self.assertIn(pypi_action, release)
         self.assertIn("PYPI_API_TOKEN", release)
-        self.assertIn("PYPI_TRUSTED_PUBLISHING", release)
+        self.assertNotIn("PYPI_TRUSTED_PUBLISHING", release)
         self.assertIn("Publish to PyPI with trusted publishing", release)
         self.assertIn("Publish to PyPI with API token", release)
+        self.assertIn("mode=trusted", release)
+        self.assertNotIn("mode=none", release)
         self.assertIn("artifacts/pypi", release)
         self.assertIn("id-token: write", release)
         self.assertIn("verify-pypi", release)
@@ -1790,44 +1838,48 @@ class ThemePackageTest(unittest.TestCase):
         self.assertIn("python-version: '3.13t'", ci)
         self.assertIn("os: macos-15", ci)
         self.assertIn("os: windows-2025", ci)
-        self.assertIn("actions/setup-python@v6", ci)
+        self.assertIn(setup_python_action, ci)
         self.assertEqual(
             {
                 "ci": {
-                    "actions/checkout@v7",
-                    "actions/setup-python@v6",
-                    "actions/upload-artifact@v7",
-                    "actions/download-artifact@v8",
+                    checkout_action,
+                    setup_python_action,
+                    upload_action,
+                    download_action,
                     "./.github/actions/build-dist",
                 },
                 "latest": {
-                    "actions/checkout@v7",
-                    "actions/setup-python@v6",
-                    "actions/download-artifact@v8",
+                    checkout_action,
+                    setup_python_action,
+                    download_action,
                     "./.github/actions/release-assets",
                     "./.github/workflows/reusable-build-python-package.yml",
                 },
                 "release": {
-                    "actions/checkout@v7",
-                    "actions/setup-python@v6",
-                    "actions/download-artifact@v8",
-                    "pypa/gh-action-pypi-publish@release/v1",
-                    "actions/attest-build-provenance@v4",
+                    checkout_action,
+                    setup_python_action,
+                    download_action,
+                    pypi_action,
+                    attest_action,
                     "./.github/actions/release-assets",
                     "./.github/workflows/reusable-build-python-package.yml",
                 },
+                "pr-distribution": {
+                    checkout_action,
+                    setup_python_action,
+                },
                 "reusable": {
-                    "actions/checkout@v7",
-                    "actions/upload-artifact@v7",
+                    checkout_action,
+                    upload_action,
                     "./.github/actions/build-dist",
                 },
                 "security": {
-                    "actions/checkout@v7",
-                    "actions/setup-python@v6",
-                    "github/codeql-action/init@v4",
-                    "github/codeql-action/analyze@v4",
+                    checkout_action,
+                    setup_python_action,
+                    codeql_init_action,
+                    codeql_analyze_action,
                 },
-                "build-action": {"actions/setup-python@v6"},
+                "build-action": {setup_python_action},
                 "release-action": set(),
             },
             action_refs,
@@ -1840,7 +1892,7 @@ class ThemePackageTest(unittest.TestCase):
             download_steps = tuple(
                 step
                 for step in workflow_steps(workflow_source)
-                if "uses: actions/download-artifact@v8" in step
+                if f"uses: {download_action}" in step
             )
             self.assertTrue(download_steps)
             for step_index, step in enumerate(download_steps):
@@ -1858,7 +1910,7 @@ class ThemePackageTest(unittest.TestCase):
             upload_steps = tuple(
                 step
                 for step in workflow_steps(workflow_source)
-                if "uses: actions/upload-artifact@v7" in step
+                if f"uses: {upload_action}" in step
             )
             self.assertTrue(upload_steps)
             for step_index, step in enumerate(upload_steps):
@@ -1873,6 +1925,8 @@ class ThemePackageTest(unittest.TestCase):
         self.assertNotIn("merge-multiple: true", workflows)
         self.assertIn("artifact-roundtrip:", ci)
         self.assertIn("name: justdocs-python-dist", ci)
+        self.assertIn("retention-days: 90", ci)
+        self.assertIn("overwrite: true", ci)
         self.assertIn("sha256sum --check SHA256SUMS.txt", ci)
         self.assertIn("package-ecosystem: github-actions", dependabot)
         self.assertIn("groups:\n      github-actions:\n        patterns:", dependabot)
@@ -1913,9 +1967,15 @@ class ThemePackageTest(unittest.TestCase):
         )
         self.assertIn("scripts/release/check-pypi-artifacts.py", release)
         self.assertIn("--stage-dir artifacts/pypi", release)
+        self.assertIn("scripts/release/verify-github-release.py", release)
+        self.assertIn("Write expected GitHub release notes", release)
+        self.assertNotIn(
+            "if: ${{ needs.publish.outputs.pypi_published == 'true' }}", release
+        )
         self.assertNotIn("- name: Stage PyPI artifacts", release)
         self.assertIn('"$PYPI_STATE" != "partial"', release)
         self.assertIn("version.is_prerelease", metadata_script)
+        self.assertNotRegex(release_notes_script, r"\b(?:mapfile|readarray)\b")
         self.assertNotIn("release_tag:", reusable)
         self.assertIn("https://uploads.github.com/repos/", transaction_script)
         self.assertIn("def _create_release(", transaction_script)
@@ -1985,10 +2045,25 @@ class ThemePackageTest(unittest.TestCase):
         self.assertIn("gzip.GzipFile", build_script)
         self.assertIn('license = "GPL-3.0-only"', pyproject)
         self.assertIn('license-files = ["LICENSE"]', pyproject)
+        self.assertIn('Changelog = "https://github.com/', pyproject)
+        self.assertEqual(
+            ["include CHANGELOG.md", "include LICENSE", "include README.md"],
+            Path("MANIFEST.in").read_text(encoding="utf-8").splitlines(),
+        )
         self.assertIn("Programming Language :: Python :: 3.14", pyproject)
         self.assertIn(
             "Programming Language :: Python :: Free Threading :: 2 - Beta", pyproject
         )
+        self.assertIn('"push",', create_next_release)
+        self.assertIn("--atomic", create_next_release)
+        self.assertIn("CHANGELOG.md", create_next_release)
+        self.assertIn("GitHub release asset inventory mismatch", verify_github_release)
+        self.assertIn("workflow_run:", pr_distribution)
+        self.assertIn("pull-requests: write", pr_distribution)
+        self.assertIn("persist-credentials: false", pr_distribution)
+        self.assertIn("sync-pr-python-dist-comment.py", pr_distribution)
+        self.assertIn("COMMENT_MARKER", sync_pr_distribution)
+        self.assertIn("Security: packages contain unreviewed", sync_pr_distribution)
 
     def test_pypi_artifact_checker_classifies_and_stages_exact_subsets(self) -> None:
         checker_path = Path("scripts/release/check-pypi-artifacts.py").resolve()
@@ -2336,6 +2411,306 @@ class ThemePackageTest(unittest.TestCase):
         self.assertIn(
             f"Python executable not found: {missing_python}", completed.stderr
         )
+
+    @unittest.skipIf(os.name == "nt", "POSIX Git release preparation path")
+    def test_create_next_release_builds_initial_changelog_commit_and_tag(self) -> None:
+        script = Path("scripts/release/create-next-release.py").resolve()
+        with TemporaryDirectory() as directory:
+            root = Path(directory)
+            repository = root / "repository"
+            remote = root / "origin.git"
+            repository.mkdir()
+            subprocess.run(
+                ("git", "init", "--initial-branch=main"),
+                cwd=repository,
+                check=True,
+                capture_output=True,
+            )
+            subprocess.run(
+                ("git", "config", "user.name", "Release Test"),
+                cwd=repository,
+                check=True,
+            )
+            subprocess.run(
+                ("git", "config", "user.email", "release@example.invalid"),
+                cwd=repository,
+                check=True,
+            )
+            (repository / "pyproject.toml").write_text(
+                '[project]\nname = "justdocs"\nversion = "0.1.0"\n',
+                encoding="utf-8",
+            )
+            (repository / "CHANGELOG.md").write_text(
+                "# justdocs Changelog\n\nStable history.\n\n"
+                "## Unreleased\n\n- Initial stable package.\n",
+                encoding="utf-8",
+            )
+            (repository / ".gitignore").write_text(
+                "artifacts/\n",
+                encoding="utf-8",
+            )
+            subprocess.run(
+                ("git", "add", "."), cwd=repository, check=True, capture_output=True
+            )
+            subprocess.run(
+                ("git", "commit", "-m", "feat: initial package"),
+                cwd=repository,
+                check=True,
+                capture_output=True,
+            )
+            subprocess.run(
+                ("git", "init", "--bare", str(remote)),
+                check=True,
+                capture_output=True,
+            )
+            subprocess.run(
+                ("git", "symbolic-ref", "HEAD", "refs/heads/main"),
+                cwd=remote,
+                check=True,
+            )
+            subprocess.run(
+                ("git", "remote", "add", "origin", str(remote)),
+                cwd=repository,
+                check=True,
+            )
+            subprocess.run(
+                ("git", "push", "--set-upstream", "origin", "main"),
+                cwd=repository,
+                check=True,
+                capture_output=True,
+            )
+            subprocess.run(
+                ("git", "remote", "set-head", "origin", "--auto"),
+                cwd=repository,
+                check=True,
+                capture_output=True,
+            )
+            completed = subprocess.run(
+                (
+                    sys.executable,
+                    str(script),
+                    "--release-date",
+                    "2026-07-12",
+                ),
+                cwd=repository,
+                env=os.environ
+                | {
+                    "PYTHON_BIN": sys.executable,
+                    "RELEASE_REPOSITORY_URL": (
+                        "https://github.com/FanaticPythoner/justdocs"
+                    ),
+                },
+                check=False,
+                text=True,
+                capture_output=True,
+            )
+            self.assertEqual(0, completed.returncode, completed.stderr)
+            self.assertEqual(
+                "release: v0.1.0",
+                subprocess.run(
+                    ("git", "log", "-1", "--format=%s"),
+                    cwd=repository,
+                    check=True,
+                    text=True,
+                    capture_output=True,
+                ).stdout.strip(),
+            )
+            self.assertEqual(
+                ["v0.1.0"],
+                subprocess.run(
+                    ("git", "tag", "--list"),
+                    cwd=repository,
+                    check=True,
+                    text=True,
+                    capture_output=True,
+                ).stdout.splitlines(),
+            )
+            changelog = (repository / "CHANGELOG.md").read_text(encoding="utf-8")
+            self.assertIn("## Unreleased\n\n## v0.1.0 - 2026-07-12", changelog)
+            self.assertIn("- Initial stable package.", changelog)
+            self.assertIn("feat: initial package", changelog)
+            self.assertTrue(
+                (repository / "artifacts/release-notes/v0.1.0.md").is_file()
+            )
+            self.assertEqual(
+                [],
+                subprocess.run(
+                    ("git", "--git-dir", str(remote), "tag", "--list"),
+                    check=True,
+                    text=True,
+                    capture_output=True,
+                ).stdout.splitlines(),
+            )
+
+    def test_pr_distribution_comment_renders_bound_artifact_metadata(self) -> None:
+        path = Path("scripts/ci/sync-pr-python-dist-comment.py").resolve()
+        specification = importlib.util.spec_from_file_location(
+            "sync_pr_python_dist_comment_test",
+            path,
+        )
+        self.assertIsNotNone(specification)
+        self.assertIsNotNone(specification.loader)
+        module = importlib.util.module_from_spec(specification)
+        sys.modules[specification.name] = module
+        try:
+            specification.loader.exec_module(module)
+        finally:
+            sys.modules.pop(specification.name, None)
+        context = module.RunContext(
+            run_id=42,
+            run_attempt=2,
+            pull_request=137,
+            head_sha="a" * 40,
+            conclusion="success",
+            html_url="https://github.com/FanaticPythoner/justdocs/actions/runs/42",
+        )
+        artifact = module.Artifact(
+            artifact_id=73,
+            size=4096,
+            digest=f"sha256:{'b' * 64}",
+            expires_at="2026-10-10T00:00:00Z",
+        )
+        with patch.dict(
+            os.environ,
+            {"GITHUB_REPOSITORY": "FanaticPythoner/justdocs"},
+        ):
+            body = module._render(context, artifact)
+        self.assertIn(module.COMMENT_MARKER, body)
+        self.assertIn("PR Python distributions: ready", body)
+        self.assertIn("/actions/runs/42/artifacts/73", body)
+        self.assertIn(artifact.digest, body)
+        self.assertIn("unreviewed pull-request code", body)
+
+    def test_pr_distribution_comment_binds_event_artifact_and_bot_comment(self) -> None:
+        path = Path("scripts/ci/sync-pr-python-dist-comment.py").resolve()
+        specification = importlib.util.spec_from_file_location(
+            "sync_pr_python_dist_comment_api_test",
+            path,
+        )
+        self.assertIsNotNone(specification)
+        self.assertIsNotNone(specification.loader)
+        module = importlib.util.module_from_spec(specification)
+        sys.modules[specification.name] = module
+        try:
+            specification.loader.exec_module(module)
+        finally:
+            sys.modules.pop(specification.name, None)
+        with TemporaryDirectory() as directory:
+            event_path = Path(directory) / "event.json"
+            event_path.write_text(
+                json.dumps(
+                    {
+                        "workflow_run": {
+                            "id": 42,
+                            "run_attempt": 3,
+                            "name": "CI",
+                            "event": "pull_request",
+                            "status": "completed",
+                            "conclusion": "success",
+                            "head_sha": "a" * 40,
+                            "html_url": (
+                                "https://github.com/FanaticPythoner/justdocs/"
+                                "actions/runs/42"
+                            ),
+                            "pull_requests": [{"number": 137}],
+                        }
+                    }
+                ),
+                encoding="utf-8",
+            )
+            with patch.dict(
+                os.environ,
+                {"GITHUB_REPOSITORY": "FanaticPythoner/justdocs"},
+            ):
+                context = module._load_context(event_path)
+
+        class FakeClient:
+            def __init__(self) -> None:
+                self.requests: list[tuple[str, str, object]] = []
+
+            def request(
+                self,
+                method: str,
+                endpoint: str,
+                payload: object = None,
+            ) -> object:
+                self.requests.append((method, endpoint, payload))
+                if endpoint.startswith("actions/runs/"):
+                    return {
+                        "artifacts": [
+                            {
+                                "id": 73,
+                                "name": module.ARTIFACT_NAME,
+                                "expired": False,
+                                "size_in_bytes": 4096,
+                                "digest": f"sha256:{'b' * 64}",
+                                "expires_at": "2026-10-10T00:00:00Z",
+                            }
+                        ]
+                    }
+                if endpoint.startswith("issues/137/comments?"):
+                    return [
+                        {
+                            "id": 80,
+                            "body": module.COMMENT_MARKER,
+                            "user": {"login": "attacker", "type": "User"},
+                        },
+                        {
+                            "id": 81,
+                            "body": module.COMMENT_MARKER,
+                            "user": {
+                                "login": "github-actions[bot]",
+                                "type": "Bot",
+                            },
+                        },
+                    ]
+                return {"id": 81}
+
+        client = FakeClient()
+        artifact = module._artifact(client, context)
+        with patch.dict(
+            os.environ,
+            {"GITHUB_REPOSITORY": "FanaticPythoner/justdocs"},
+        ):
+            body = module._render(context, artifact)
+        module._synchronize(client, context, body)
+        self.assertIn(
+            ("PATCH", "issues/comments/81", {"body": body}),
+            client.requests,
+        )
+        self.assertNotIn(
+            ("PATCH", "issues/comments/80", {"body": body}),
+            client.requests,
+        )
+
+    def test_github_release_verifier_matches_exact_local_asset_digests(self) -> None:
+        path = Path("scripts/release/verify-github-release.py").resolve()
+        specification = importlib.util.spec_from_file_location(
+            "verify_github_release_test",
+            path,
+        )
+        self.assertIsNotNone(specification)
+        self.assertIsNotNone(specification.loader)
+        module = importlib.util.module_from_spec(specification)
+        specification.loader.exec_module(module)
+        with TemporaryDirectory() as directory:
+            asset = Path(directory) / "justdocs-0.1.0-py3-none-any.whl"
+            asset.write_bytes(b"distribution")
+            local = module._local_assets(Path(directory))
+        size, digest = local[asset.name]
+        remote = module._remote_assets(
+            {
+                "assets": [
+                    {
+                        "name": asset.name,
+                        "size": size,
+                        "digest": digest,
+                        "state": "uploaded",
+                    }
+                ]
+            }
+        )
+        self.assertEqual(local, remote)
 
     @unittest.skipIf(os.name == "nt", "POSIX release transaction path")
     def test_release_upload_curl_sends_exact_zero_and_nonzero_lengths(self) -> None:
@@ -6925,6 +7300,7 @@ class ThemePackageTest(unittest.TestCase):
             "justdocs update",
             "just global-install",
             "just dist",
+            "just next-release",
             "JUSTDOCS_GLOBAL_PYTHON",
             "GlobalCliError",
             "ProjectRecipeError",
@@ -6942,9 +7318,11 @@ class ThemePackageTest(unittest.TestCase):
             "isolated global command environment",
             ".github/actions/build-dist/action.yml",
             ".github/actions/release-assets/action.yml",
+            ".github/workflows/pr-python-dist-comment.yml",
             "pypa/gh-action-pypi-publish",
             "PYPI_API_TOKEN",
-            "PYPI_TRUSTED_PUBLISHING",
+            "PyPI trusted publisher",
+            "CHANGELOG.md",
             "SHA256SUMS.txt",
             "3.14t",
             "packaging>=24",

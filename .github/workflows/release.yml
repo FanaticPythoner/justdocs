@@ -29,13 +29,13 @@ jobs:
 
     steps:
       - name: Check out repository
-        uses: actions/checkout@v7
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
         with:
           fetch-depth: 0
           ref: ${{ inputs.tag || github.ref_name }}
 
       - name: Set up Python
-        uses: actions/setup-python@v6
+        uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
         with:
           python-version: '3.12'
           check-latest: true
@@ -83,12 +83,12 @@ jobs:
 
     steps:
       - name: Check out repository
-        uses: actions/checkout@v7
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
         with:
           ref: ${{ needs.preflight.outputs.release_ref }}
 
       - name: Set up Python
-        uses: actions/setup-python@v6
+        uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
         with:
           python-version: '3.12'
           check-latest: true
@@ -98,7 +98,7 @@ jobs:
         run: python -m pip install 'packaging>=24'
 
       - name: Download distributions
-        uses: actions/download-artifact@v8
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
         with:
           name: python-dist
           path: artifacts/release
@@ -123,7 +123,6 @@ jobs:
         id: pypi_gate
         env:
           PYPI_API_TOKEN: ${{ secrets.PYPI_API_TOKEN }}
-          PYPI_TRUSTED_PUBLISHING: ${{ vars.PYPI_TRUSTED_PUBLISHING }}
           PYPI_STATE: ${{ steps.pypi_state.outputs.state }}
         run: |
           set -euo pipefail
@@ -134,18 +133,14 @@ jobs:
           elif [[ "$PYPI_STATE" != "absent" && "$PYPI_STATE" != "partial" ]]; then
             echo "invalid PyPI publication state '$PYPI_STATE'" >&2
             exit 2
-          elif [[ "${PYPI_TRUSTED_PUBLISHING,,}" == "true" ]]; then
-            publish=true
-            published=true
-            mode=trusted
           elif [[ -n "${PYPI_API_TOKEN:-}" ]]; then
             publish=true
             published=true
             mode=token
           else
-            publish=false
-            published=false
-            mode=none
+            publish=true
+            published=true
+            mode=trusted
           fi
           {
             echo "publish=$publish"
@@ -155,7 +150,7 @@ jobs:
 
       - name: Publish to PyPI with trusted publishing
         if: ${{ steps.pypi_gate.outputs.mode == 'trusted' }}
-        uses: pypa/gh-action-pypi-publish@release/v1
+        uses: pypa/gh-action-pypi-publish@cef221092ed1bacb1cc03d23a2d87d1d172e277b # release/v1
         with:
           packages-dir: artifacts/pypi
           skip-existing: false
@@ -163,7 +158,7 @@ jobs:
 
       - name: Publish to PyPI with API token
         if: ${{ steps.pypi_gate.outputs.mode == 'token' }}
-        uses: pypa/gh-action-pypi-publish@release/v1
+        uses: pypa/gh-action-pypi-publish@cef221092ed1bacb1cc03d23a2d87d1d172e277b # release/v1
         with:
           user: __token__
           password: ${{ secrets.PYPI_API_TOKEN }}
@@ -173,7 +168,7 @@ jobs:
           attestations: false
 
       - name: Attest build provenance
-        uses: actions/attest-build-provenance@v4
+        uses: actions/attest-build-provenance@78e6cbd37d0ac1a40113c04f2037dacf1ea3f12e # v4
         with:
           subject-path: |
             artifacts/release/*.whl
@@ -205,20 +200,20 @@ jobs:
 
     steps:
       - name: Check out repository
-        uses: actions/checkout@v7
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
         with:
           fetch-depth: 0
           ref: ${{ needs.preflight.outputs.release_ref }}
 
       - name: Download distributions
-        uses: actions/download-artifact@v8
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
         with:
           name: python-dist
           path: artifacts/release
           digest-mismatch: error
 
       - name: Set up release tooling
-        uses: actions/setup-python@v6
+        uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
         with:
           python-version: '3.12'
           check-latest: true
@@ -256,27 +251,26 @@ jobs:
       - preflight
       - publish
       - github-release
-    if: ${{ needs.publish.outputs.pypi_published == 'true' }}
     runs-on: ubuntu-24.04
     permissions:
       contents: read
 
     steps:
       - name: Check out repository
-        uses: actions/checkout@v7
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
         with:
           fetch-depth: 0
           ref: ${{ needs.preflight.outputs.release_ref }}
 
       - name: Set up Python
-        uses: actions/setup-python@v6
+        uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
         with:
           python-version: '3.12'
           check-latest: true
           cache: pip
 
       - name: Download distributions
-        uses: actions/download-artifact@v8
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
         with:
           name: python-dist
           path: artifacts/release
@@ -289,3 +283,30 @@ jobs:
         env:
           RELEASE_TAG: ${{ needs.preflight.outputs.tag }}
         run: bash scripts/release/verify-pypi.sh
+
+      - name: Write expected GitHub release notes
+        env:
+          RELEASE_TAG: ${{ needs.preflight.outputs.tag }}
+          RELEASE_SHA: ${{ needs.preflight.outputs.release_sha }}
+        run: |
+          bash scripts/release/write-release-notes.sh \
+            --channel stable \
+            --tag "$RELEASE_TAG" \
+            --target "$RELEASE_SHA" \
+            --output artifacts/release-notes.md
+
+      - name: Verify public GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ needs.preflight.outputs.tag }}
+          RELEASE_SHA: ${{ needs.preflight.outputs.release_sha }}
+          RELEASE_PRERELEASE: ${{ needs.preflight.outputs.prerelease }}
+        run: |
+          python scripts/release/verify-github-release.py \
+            --repository "$GITHUB_REPOSITORY" \
+            --tag "$RELEASE_TAG" \
+            --target-sha "$RELEASE_SHA" \
+            --release-name "justdocs $RELEASE_TAG" \
+            --prerelease "$RELEASE_PRERELEASE" \
+            --artifacts-dir artifacts/release \
+            --notes-file artifacts/release-notes.md

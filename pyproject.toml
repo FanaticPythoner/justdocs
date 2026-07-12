@@ -43,6 +43,7 @@ Homepage = "https://github.com/FanaticPythoner/justdocs"
 Repository = "https://github.com/FanaticPythoner/justdocs"
 Issues = "https://github.com/FanaticPythoner/justdocs/issues"
 Releases = "https://github.com/FanaticPythoner/justdocs/releases"
+Changelog = "https://github.com/FanaticPythoner/justdocs/blob/main/CHANGELOG.md"
 
 [project.scripts]
 justdocs = "justdocs.cli:main"

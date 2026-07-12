@@ -133,6 +133,7 @@ record. CLI options override environment values, which override stored values.
 | `just example-justfile` | Regenerate this example `Justfile`. |
 | `just test` | Install the source virtualenv and run package tests through `.venv`. |
 | `just dist` | Build sdist, wheel, Twine validation, and `SHA256SUMS.txt` through the release build script. |
+| `just next-release --bump patch` | Update package version and changelog, then create the release commit and annotated tag. |
 | `just example-build` | Build this example site through its generated recipe. |
 | `just example-serve` | Serve this example site through its generated recipe. |
 | `just check` | Run tests and strict example build. |
@@ -167,8 +168,24 @@ the corresponding `JUSTDOCS_*` environment values.
 | `.github/actions/build-dist/action.yml` | Composite action for sdist, wheel, Twine check, and `SHA256SUMS.txt`. |
 | `.github/actions/release-assets/action.yml` | Composite action for release creation, asset purge, and asset upload. |
 | `.github/workflows/ci.yml` | Python `3.10` through `3.14`, `3.13t`, `3.14t`, macOS, Windows, and distribution build. |
-| `.github/workflows/release.yml` | Tag release pipeline with tests, build, PyPI publish gate, GitHub release assets, and PyPI visibility check. |
+| `.github/workflows/release.yml` | Tag release pipeline with reproducible builds, trusted PyPI publication, provenance, GitHub release assets, and public checks. |
 | `.github/workflows/latest.yml` | Moving `latest` prerelease assets for `main`. |
+| `.github/workflows/pr-python-dist-comment.yml` | Trusted PR comment for the CI-built wheel, source archive, installers, and checksum manifest. |
 | `install.sh` and `install.ps1` | Latest GitHub release bootstrap assets. |
 | `pypa/gh-action-pypi-publish` | PyPI upload action using trusted publishing or `PYPI_API_TOKEN`. |
-| `PYPI_TRUSTED_PUBLISHING` | Repository variable set to `true` for the configured PyPI trusted publisher. |
+| PyPI trusted publisher | Default tokenless identity bound to `release.yml` and the `release` environment. |
+| `PYPI_API_TOKEN` | Explicit publication fallback. |
+| `CHANGELOG.md` | Persistent stable-release history maintained by `just next-release`. |
+
+Stable release command:
+
+```bash
+just check
+just dist
+just next-release --bump patch --push
+```
+
+PyPI trusted publishing binds owner `FanaticPythoner`, repository `justdocs`, workflow
+`release.yml`, environment `release`, and project `justdocs`. Missing or rejected registry
+authentication fails publication before GitHub Release creation. Public checks compare PyPI and
+GitHub asset digests with the reproducible local wheel and source archive.

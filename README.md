@@ -307,6 +307,8 @@ value, generated Justfile record, then package default. `--root`,
 | `just example-justfile` | Regenerate `examples/basic/Justfile` through `justdocs projects init`. |
 | `just test` | Install the source virtualenv and run package tests through `.venv`. |
 | `just dist` | Build sdist, wheel, Twine validation, and `SHA256SUMS.txt` through the release build script. |
+| `just next-release --bump patch` | Update `pyproject.toml` and `CHANGELOG.md`, create the release commit, and create an annotated SemVer tag. |
+| `just next-release --bump patch --push` | Atomically push the release commit and immutable tag after local review. |
 | `just example-build` | Run the generated example project `check` recipe. |
 | `just example-serve` | Run the generated example project `serve` recipe. |
 | `just check` | Run tests and strict example build. |
@@ -336,11 +338,44 @@ root, and uninstall refuses to remove an unowned command.
 | `.github/actions/build-dist/action.yml` | Composite action for sdist, wheel, Twine check, and `SHA256SUMS.txt`. |
 | `.github/actions/release-assets/action.yml` | Composite action for release creation, asset purge, and asset upload. |
 | `.github/workflows/ci.yml` | Python `3.10` through `3.14`, `3.13t`, `3.14t`, macOS, Windows, and distribution build. |
-| `.github/workflows/release.yml` | Tag release pipeline with tests, build, PyPI publish gate, GitHub release assets, and PyPI visibility check. |
+| `.github/workflows/release.yml` | Tag release pipeline with tests, reproducible distributions, trusted PyPI publishing, provenance, GitHub release assets, and public publication checks. |
 | `.github/workflows/latest.yml` | Moving `latest` prerelease assets for `main`. |
+| `.github/workflows/pr-python-dist-comment.yml` | Publish one trusted PR comment linking the CI-built wheel, source archive, installers, and checksum manifest. |
 | `install.sh` and `install.ps1` | Latest GitHub release bootstrap assets. |
 | `pypa/gh-action-pypi-publish` | PyPI upload action using trusted publishing or `PYPI_API_TOKEN`. |
-| `PYPI_TRUSTED_PUBLISHING` | Repository variable set to `true` after the `release` environment is registered as a PyPI trusted publisher. |
+| PyPI trusted publisher | Default tokenless publication identity: repository `FanaticPythoner/justdocs`, workflow `release.yml`, environment `release`. |
+| `PYPI_API_TOKEN` | Explicit token fallback when trusted publishing is unavailable. |
+| `CHANGELOG.md` | Persistent stable-release history generated from the Unreleased section and chronological Git commits. |
+
+### Stable Release
+
+PyPI trusted-publisher identity:
+
+| Field | Value |
+| --- | --- |
+| PyPI project | `justdocs` |
+| Owner | `FanaticPythoner` |
+| Repository | `justdocs` |
+| Workflow | `release.yml` |
+| Environment | `release` |
+
+```bash
+just check
+just dist
+just next-release --bump patch --push
+```
+
+`next-release` requires a clean default branch equal to `origin`, updates `pyproject.toml` and
+`CHANGELOG.md`, creates `release: vX.Y.Z`, creates an annotated `vX.Y.Z` tag, and atomically
+pushes branch plus tag only with `--push`. The tag starts the stable workflow. Registry failure
+blocks GitHub Release creation. Successful publication requires exact PyPI wheel/sdist digests,
+exact GitHub asset digests, exact release notes, the immutable tag target, provenance attestation,
+and stable latest-release binding.
+
+Pull-request CI publishes `justdocs-python-dist` for 90 days after all matrix jobs and checksum
+round-trip checks pass. A trusted `workflow_run` job maintains one PR comment with the artifact
+digest, expiry, run identity, and isolated-install warning without executing pull-request code
+under write permissions.
 
 ## Smart Links
 

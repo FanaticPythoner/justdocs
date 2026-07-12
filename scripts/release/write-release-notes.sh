@@ -59,11 +59,14 @@ previous_tag="$(previous_release_tag "$release_tag")"
 repository_url="$(release_repository_url)"
 mkdir -p "$(dirname "$output_file")"
 
+commits=()
+revision="$target_sha"
 if [[ -n "$previous_tag" ]]; then
-  mapfile -d '' -t commits < <(git log --reverse -z --format='%H%x1f%h%x1f%s%x1f%b' "${previous_tag}..${target_sha}")
-else
-  mapfile -d '' -t commits < <(git log --reverse -z --format='%H%x1f%h%x1f%s%x1f%b' "${target_sha}")
+  revision="${previous_tag}..${target_sha}"
 fi
+while IFS= read -r -d '' commit; do
+  commits+=( "$commit" )
+done < <(git log --reverse -z --format='%H%x1f%h%x1f%s%x1f%b' "$revision")
 
 {
   if [[ "$channel" == 'latest' ]]; then
