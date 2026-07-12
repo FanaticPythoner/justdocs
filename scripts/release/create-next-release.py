@@ -298,7 +298,14 @@ def _prepare(arguments: argparse.Namespace) -> str:
 
     if _git("status", "--porcelain=v1", "--untracked-files=all"):
         raise ReleasePreparationError("working tree must be clean")
-    _git("fetch", "--prune", "--tags", arguments.remote)
+    _git(
+        "fetch",
+        "--prune",
+        "--no-tags",
+        arguments.remote,
+        f"+refs/heads/*:refs/remotes/{arguments.remote}/*",
+        "refs/tags/v*:refs/tags/v*",
+    )
     branch = _default_branch(arguments.remote)
     if _git("branch", "--show-current") != branch:
         raise ReleasePreparationError(f"release branch must be '{branch}'")

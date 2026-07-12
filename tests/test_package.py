@@ -1780,13 +1780,16 @@ class ThemePackageTest(unittest.TestCase):
             "pypa/gh-action-pypi-publish@cef221092ed1bacb1cc03d23a2d87d1d172e277b"
         )
         attest_action = (
-            "actions/attest-build-provenance@78e6cbd37d0ac1a40113c04f2037dacf1ea3f12e"
+            "actions/attest-build-provenance@0f67c3f4856b2e3261c31976d6725780e5e4c373"
         )
         codeql_init_action = (
-            "github/codeql-action/init@1ad29ea4a422cce9a242a9fae469541dcd08addc"
+            "github/codeql-action/init@99df26d4f13ea111d4ec1a7dddef6063f76b97e9"
         )
         codeql_analyze_action = (
-            "github/codeql-action/analyze@1ad29ea4a422cce9a242a9fae469541dcd08addc"
+            "github/codeql-action/analyze@99df26d4f13ea111d4ec1a7dddef6063f76b97e9"
+        )
+        dependency_review_action = (
+            "actions/dependency-review-action@a1d282b36b6f3519aa1f3fc636f609c47dddb294"
         )
         workflows = "\n".join(
             (
@@ -1898,6 +1901,7 @@ class ThemePackageTest(unittest.TestCase):
                 "security": {
                     checkout_action,
                     setup_python_action,
+                    dependency_review_action,
                     codeql_init_action,
                     codeql_analyze_action,
                 },
@@ -1947,7 +1951,7 @@ class ThemePackageTest(unittest.TestCase):
         self.assertNotIn("merge-multiple: true", workflows)
         self.assertIn("artifact-roundtrip:", ci)
         self.assertIn("name: justdocs-python-dist", ci)
-        self.assertIn("retention-days: 90", ci)
+        self.assertIn("retention-days: 30", ci)
         self.assertIn("overwrite: true", ci)
         self.assertIn("sha256sum --check SHA256SUMS.txt", ci)
         self.assertIn("package-ecosystem: github-actions", dependabot)
@@ -1955,7 +1959,7 @@ class ThemePackageTest(unittest.TestCase):
         self.assertIn('- "*"', dependabot)
         self.assertIn("pip-audit==2.10.1", security)
         self.assertIn("python -m pip_audit --strict --progress-spinner=off .", security)
-        self.assertNotIn("actions/dependency-review-action", security)
+        self.assertIn(dependency_review_action, security)
         self.assertIn("uses: ./.github/actions/build-dist", ci)
         self.assertIn(
             "uses: ./.github/workflows/reusable-build-python-package.yml", release
@@ -1971,7 +1975,7 @@ class ThemePackageTest(unittest.TestCase):
             release,
         )
         self.assertIn(
-            "concurrency:\n  group: latest-main\n  cancel-in-progress: false",
+            "concurrency:\n  group: latest-main\n  cancel-in-progress: true",
             latest,
         )
         for workflow in (release, latest):
@@ -2511,6 +2515,34 @@ class ThemePackageTest(unittest.TestCase):
                 check=True,
                 capture_output=True,
             )
+            subprocess.run(
+                ("git", "tag", "latest"),
+                cwd=repository,
+                check=True,
+                capture_output=True,
+            )
+            (repository / "moving-latest.txt").write_text(
+                "moving release\n",
+                encoding="utf-8",
+            )
+            subprocess.run(
+                ("git", "add", "moving-latest.txt"),
+                cwd=repository,
+                check=True,
+                capture_output=True,
+            )
+            subprocess.run(
+                ("git", "commit", "-m", "feat: advance moving release"),
+                cwd=repository,
+                check=True,
+                capture_output=True,
+            )
+            subprocess.run(
+                ("git", "push", "origin", "main", "HEAD:refs/tags/latest"),
+                cwd=repository,
+                check=True,
+                capture_output=True,
+            )
             completed = subprocess.run(
                 (
                     sys.executable,
@@ -2544,7 +2576,7 @@ class ThemePackageTest(unittest.TestCase):
                 ).stdout.strip(),
             )
             self.assertEqual(
-                ["v1.0.0"],
+                ["latest", "v1.0.0"],
                 subprocess.run(
                     ("git", "tag", "--list"),
                     cwd=repository,
@@ -2563,7 +2595,7 @@ class ThemePackageTest(unittest.TestCase):
             )
             self.assertFalse((repository / "artifacts").exists())
             self.assertEqual(
-                [],
+                ["latest"],
                 subprocess.run(
                     ("git", "--git-dir", str(remote), "tag", "--list"),
                     check=True,
@@ -2605,7 +2637,7 @@ class ThemePackageTest(unittest.TestCase):
                 (repository / "pyproject.toml").read_text(encoding="utf-8"),
             )
             self.assertEqual(
-                ["v1.0.0", "v1.0.1"],
+                ["latest", "v1.0.0", "v1.0.1"],
                 subprocess.run(
                     ("git", "tag", "--list", "--sort=v:refname"),
                     cwd=repository,

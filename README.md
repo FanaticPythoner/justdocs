@@ -375,7 +375,7 @@ blocks GitHub Release creation. Successful publication requires exact PyPI wheel
 exact GitHub asset digests, exact release notes, the immutable tag target, provenance attestation,
 and stable latest-release binding.
 
-Pull-request CI publishes `justdocs-python-dist` for 90 days after all matrix jobs and checksum
+Pull-request CI publishes `justdocs-python-dist` for 30 days after all matrix jobs and checksum
 round-trip checks pass. A trusted `workflow_run` job maintains one PR comment with the artifact
 digest, expiry, run identity, and isolated-install warning without executing pull-request code
 under write permissions.
