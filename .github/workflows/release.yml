@@ -196,6 +196,10 @@ jobs:
       - preflight
       - publish
     runs-on: ubuntu-24.04
+    concurrency:
+      group: github-release-mutation-${{ github.repository }}
+      cancel-in-progress: false
+      queue: max
     permissions:
       contents: write
 

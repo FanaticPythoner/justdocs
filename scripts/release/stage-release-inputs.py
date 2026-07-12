@@ -16,21 +16,27 @@ from typing import BinaryIO, Iterator
 
 try:
     from secure_posix_paths import (
+        BoundCreatedDirectory,
         SecurePathError,
         canonical_child as secure_canonical_child,
         canonical_directory as secure_canonical_directory,
         directory_open_flags,
         open_absolute_directory as secure_open_absolute_directory,
+        open_bound_created_directory as secure_open_bound_created_directory,
+        verify_bound_created_directory as secure_verify_bound_created_directory,
     )
 except ModuleNotFoundError as import_error:
     if import_error.name != "secure_posix_paths":
         raise
     from scripts.release.secure_posix_paths import (
+        BoundCreatedDirectory,
         SecurePathError,
         canonical_child as secure_canonical_child,
         canonical_directory as secure_canonical_directory,
         directory_open_flags,
         open_absolute_directory as secure_open_absolute_directory,
+        open_bound_created_directory as secure_open_bound_created_directory,
+        verify_bound_created_directory as secure_verify_bound_created_directory,
     )
 
 
@@ -38,6 +44,7 @@ MANIFEST_NAME = "SHA256SUMS.txt"
 METADATA_NAME = "snapshot.json"
 NOTES_NAME = "release-notes.md"
 ASSETS_NAME = "assets"
+SNAPSHOT_PREFIX = "justdocs-release-"
 SNAPSHOT_VERSION = 2
 COPY_BUFFER_SIZE = 1024 * 1024
 MANIFEST_LINE = re.compile(
@@ -93,6 +100,22 @@ def _canonical_child(path: Path) -> Path:
 
 
 @contextmanager
+def _open_bound_created_directory(
+    created_path: Path,
+    expected_parent: Path,
+) -> Iterator[BoundCreatedDirectory]:
+    try:
+        with secure_open_bound_created_directory(
+            created_path,
+            expected_parent,
+            SNAPSHOT_PREFIX,
+        ) as binding:
+            yield binding
+    except SecurePathError as error:
+        raise SnapshotError("invalid release snapshot creation boundary") from error
+
+
+@contextmanager
 def _open_regular_at(
     directory_descriptor: int,
     name: str,
@@ -112,33 +135,52 @@ def _open_regular_at(
         yield source
 
 
-def _copy_stream_and_hash(source: BinaryIO, destination_path: Path) -> str:
+def _write_stream_exclusive_at(
+    source: BinaryIO,
+    destination_descriptor: int,
+    destination_name: str,
+) -> str:
     digest = hashlib.sha256()
-    destination_flags = os.O_WRONLY | os.O_CREAT | os.O_EXCL
-    destination_descriptor = os.open(destination_path, destination_flags, 0o600)
+    destination_flags = (
+        os.O_WRONLY | os.O_CREAT | os.O_EXCL | _required_os_flag("O_NOFOLLOW")
+    )
+    output_descriptor = os.open(
+        destination_name,
+        destination_flags,
+        0o600,
+        dir_fd=destination_descriptor,
+    )
     try:
-        with os.fdopen(destination_descriptor, "wb") as destination:
-            destination_descriptor = -1
+        with os.fdopen(output_descriptor, "wb") as destination:
+            output_descriptor = -1
             while chunk := source.read(COPY_BUFFER_SIZE):
                 digest.update(chunk)
                 destination.write(chunk)
             destination.flush()
+            os.fchmod(destination.fileno(), 0o400)
             os.fsync(destination.fileno())
     finally:
-        if destination_descriptor >= 0:
-            os.close(destination_descriptor)
-    destination_path.chmod(0o400)
+        if output_descriptor >= 0:
+            os.close(output_descriptor)
     return digest.hexdigest()
 
 
-def _copy_absolute_and_hash(source_path: Path, destination_path: Path) -> str:
+def _copy_absolute_and_hash(
+    source_path: Path,
+    destination_descriptor: int,
+    destination_name: str,
+) -> str:
     with _open_absolute_directory(source_path.parent) as parent_descriptor:
         with _open_regular_at(
             parent_descriptor,
             source_path.name,
             f"invalid release input '{source_path}': expected regular file",
         ) as source:
-            return _copy_stream_and_hash(source, destination_path)
+            return _write_stream_exclusive_at(
+                source,
+                destination_descriptor,
+                destination_name,
+            )
 
 
 def _workspace() -> tuple[Path, Path]:
@@ -255,14 +297,50 @@ def _validate_inventory(
         )
 
 
-def _write_bytes_exclusive(path: Path, payload: bytes) -> str:
-    descriptor = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+def _write_bytes_exclusive_at(
+    directory_descriptor: int,
+    name: str,
+    payload: bytes,
+) -> str:
+    descriptor = os.open(
+        name,
+        os.O_WRONLY | os.O_CREAT | os.O_EXCL | _required_os_flag("O_NOFOLLOW"),
+        0o600,
+        dir_fd=directory_descriptor,
+    )
     with os.fdopen(descriptor, "wb") as destination:
         destination.write(payload)
         destination.flush()
+        os.fchmod(destination.fileno(), 0o400)
         os.fsync(destination.fileno())
-    path.chmod(0o400)
     return hashlib.sha256(payload).hexdigest()
+
+
+def _mkdir_at(directory_descriptor: int, name: str, mode: int) -> None:
+    os.mkdir(name, mode, dir_fd=directory_descriptor)
+
+
+def _verify_directory_entry(
+    parent_descriptor: int,
+    name: str,
+    descriptor: int,
+    error_message: str,
+) -> None:
+    opened = os.fstat(descriptor)
+    try:
+        current = os.stat(
+            name,
+            dir_fd=parent_descriptor,
+            follow_symlinks=False,
+        )
+    except OSError as error:
+        raise SnapshotError(error_message) from error
+    if (
+        not stat.S_ISDIR(current.st_mode)
+        or current.st_dev != opened.st_dev
+        or current.st_ino != opened.st_ino
+    ):
+        raise SnapshotError(error_message)
 
 
 def _remove_directory_contents(directory_descriptor: int) -> None:
@@ -279,9 +357,15 @@ def _remove_directory_contents(directory_descriptor: int) -> None:
                 )
                 try:
                     _remove_directory_contents(child_descriptor)
+                    _verify_directory_entry(
+                        directory_descriptor,
+                        entry.name,
+                        child_descriptor,
+                        "release snapshot directory changed during cleanup",
+                    )
+                    os.rmdir(entry.name, dir_fd=directory_descriptor)
                 finally:
                     os.close(child_descriptor)
-                os.rmdir(entry.name, dir_fd=directory_descriptor)
             elif entry.is_file(follow_symlinks=False):
                 os.unlink(entry.name, dir_fd=directory_descriptor)
             else:
@@ -312,11 +396,90 @@ def _remove_tree_at(parent_descriptor: int, root_name: str) -> None:
     os.rmdir(root_name, dir_fd=parent_descriptor)
 
 
-def _remove_tree(stage_parent: Path, stage_root: Path) -> None:
-    if stage_root.parent != stage_parent:
-        raise SnapshotError("invalid release snapshot cleanup boundary")
-    with _open_absolute_directory(stage_parent) as parent_descriptor:
-        _remove_tree_at(parent_descriptor, stage_root.name)
+def _remove_bound_tree(binding: BoundCreatedDirectory) -> None:
+    _remove_directory_contents(binding.descriptor)
+    try:
+        secure_verify_bound_created_directory(binding)
+    except SecurePathError as error:
+        raise SnapshotError("release snapshot root changed during cleanup") from error
+    os.rmdir(binding.path.name, dir_fd=binding.parent_descriptor)
+
+
+def _populate_snapshot(
+    binding: BoundCreatedDirectory,
+    source_dir: Path,
+    source_descriptor: int,
+    manifest_bytes: bytes,
+    manifest_entries: dict[str, str],
+    notes_path: Path | None,
+) -> None:
+    _mkdir_at(binding.descriptor, ASSETS_NAME, 0o700)
+    assets_descriptor = os.open(
+        ASSETS_NAME,
+        _directory_read_flags(),
+        dir_fd=binding.descriptor,
+    )
+    try:
+        metadata: dict[str, object] = {
+            "version": SNAPSHOT_VERSION,
+            "root_name": binding.path.name,
+            "assets": {},
+            "notes": None,
+        }
+        staged_assets = metadata["assets"]
+        if not isinstance(staged_assets, dict):
+            raise SnapshotError("invalid snapshot metadata construction")
+        for name, expected_digest in sorted(manifest_entries.items()):
+            with _open_regular_at(
+                source_descriptor,
+                name,
+                f"invalid release input '{source_dir / name}': expected regular file",
+            ) as source:
+                actual_digest = _write_stream_exclusive_at(
+                    source,
+                    assets_descriptor,
+                    name,
+                )
+            if actual_digest != expected_digest:
+                raise SnapshotError(
+                    f"release asset checksum mismatch for '{name}': "
+                    f"expected {expected_digest}, got {actual_digest}"
+                )
+            staged_assets[name] = actual_digest
+        staged_assets[MANIFEST_NAME] = _write_bytes_exclusive_at(
+            assets_descriptor,
+            MANIFEST_NAME,
+            manifest_bytes,
+        )
+        if notes_path is not None:
+            metadata["notes"] = _copy_absolute_and_hash(
+                notes_path,
+                binding.descriptor,
+                NOTES_NAME,
+            )
+        metadata_payload = (
+            json.dumps(metadata, sort_keys=True, separators=(",", ":")) + "\n"
+        ).encode("utf-8")
+        _write_bytes_exclusive_at(
+            binding.descriptor,
+            METADATA_NAME,
+            metadata_payload,
+        )
+        os.fchmod(assets_descriptor, 0o500)
+        os.fsync(assets_descriptor)
+        _verify_directory_entry(
+            binding.descriptor,
+            ASSETS_NAME,
+            assets_descriptor,
+            "release snapshot assets changed during staging",
+        )
+    finally:
+        os.close(assets_descriptor)
+    os.fsync(binding.descriptor)
+    try:
+        secure_verify_bound_created_directory(binding)
+    except SecurePathError as error:
+        raise SnapshotError("release snapshot root changed during staging") from error
 
 
 def _stage(source_raw: str, notes_raw: str, stage_parent_raw: str) -> Path:
@@ -343,64 +506,27 @@ def _stage(source_raw: str, notes_raw: str, stage_parent_raw: str) -> Path:
             source_descriptor,
         )
         _validate_inventory(source_dir, source_descriptor, manifest_entries)
-        created_root = Path(
-            tempfile.mkdtemp(prefix="justdocs-release-", dir=stage_parent)
-        )
-        stage_root = created_root
-        try:
-            if stage_root.parent != stage_parent:
-                raise SnapshotError("invalid release snapshot creation boundary")
-            assets_dir = stage_root / ASSETS_NAME
-            assets_dir.mkdir(mode=0o700)
-            metadata: dict[str, object] = {
-                "version": SNAPSHOT_VERSION,
-                "root_name": stage_root.name,
-                "assets": {},
-                "notes": None,
-            }
-            staged_assets = metadata["assets"]
-            if not isinstance(staged_assets, dict):
-                raise SnapshotError("invalid snapshot metadata construction")
-            for name, expected_digest in sorted(manifest_entries.items()):
-                with _open_regular_at(
-                    source_descriptor,
-                    name,
-                    f"invalid release input '{source_dir / name}': "
-                    "expected regular file",
-                ) as source:
-                    actual_digest = _copy_stream_and_hash(
-                        source,
-                        assets_dir / name,
-                    )
-                if actual_digest != expected_digest:
-                    raise SnapshotError(
-                        f"release asset checksum mismatch for '{name}': "
-                        f"expected {expected_digest}, got {actual_digest}"
-                    )
-                staged_assets[name] = actual_digest
-            staged_assets[MANIFEST_NAME] = _write_bytes_exclusive(
-                assets_dir / MANIFEST_NAME, manifest_bytes
-            )
-            if notes_path is not None:
-                metadata["notes"] = _copy_absolute_and_hash(
-                    notes_path,
-                    stage_root / NOTES_NAME,
-                )
-            metadata_payload = (
-                json.dumps(metadata, sort_keys=True, separators=(",", ":")) + "\n"
-            ).encode("utf-8")
-            _write_bytes_exclusive(stage_root / METADATA_NAME, metadata_payload)
-            assets_dir.chmod(0o500)
-            return stage_root
-        except Exception as staging_error:
+        created_root = Path(tempfile.mkdtemp(prefix=SNAPSHOT_PREFIX, dir=stage_parent))
+        with _open_bound_created_directory(created_root, stage_parent) as binding:
             try:
-                _remove_tree(stage_parent, stage_root)
-            except Exception as cleanup_error:
-                raise SnapshotError(
-                    f"release snapshot staging failed: {staging_error}; "
-                    f"partial cleanup failed: {cleanup_error}"
-                ) from staging_error
-            raise
+                _populate_snapshot(
+                    binding,
+                    source_dir,
+                    source_descriptor,
+                    manifest_bytes,
+                    manifest_entries,
+                    notes_path,
+                )
+                return binding.path
+            except Exception as staging_error:
+                try:
+                    _remove_bound_tree(binding)
+                except Exception as cleanup_error:
+                    raise SnapshotError(
+                        f"release snapshot staging failed: {staging_error}; "
+                        f"partial cleanup failed: {cleanup_error}"
+                    ) from staging_error
+                raise
 
 
 def _parse_metadata(metadata_bytes: bytes) -> dict[str, object]:
@@ -426,7 +552,7 @@ def _parse_metadata(metadata_bytes: bytes) -> dict[str, object]:
 def _verify(stage_root_raw: str) -> None:
     _regular_read_flags()
     stage_root = _canonical_child(Path(stage_root_raw))
-    if not stage_root.name.startswith("justdocs-release-"):
+    if not stage_root.name.startswith(SNAPSHOT_PREFIX):
         raise SnapshotError("invalid release snapshot root")
     try:
         with _open_absolute_directory(stage_root.parent) as parent_descriptor:
@@ -513,11 +639,21 @@ def _cleanup(stage_root_raw: str, stage_parent_raw: str) -> None:
     stage_root = _canonical_child(Path(stage_root_raw))
     stage_parent = _canonical_directory(Path(os.path.abspath(stage_parent_raw)))
     if stage_root.parent != stage_parent or not stage_root.name.startswith(
-        "justdocs-release-"
+        SNAPSHOT_PREFIX
     ):
         raise SnapshotError("invalid release snapshot cleanup boundary")
     try:
         with _open_absolute_directory(stage_parent) as parent_descriptor:
+            try:
+                root_mode = os.stat(
+                    stage_root.name,
+                    dir_fd=parent_descriptor,
+                    follow_symlinks=False,
+                ).st_mode
+            except FileNotFoundError:
+                return
+            if not stat.S_ISDIR(root_mode):
+                raise SnapshotError("invalid release snapshot cleanup root")
             _remove_tree_at(parent_descriptor, stage_root.name)
     except OSError as error:
         raise SnapshotError("invalid release snapshot cleanup path") from error

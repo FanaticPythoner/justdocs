@@ -135,6 +135,10 @@ runs:
           exit "$preflight_result"
         }
         trap cleanup_failed_preflight EXIT
+        if [[ "$RELEASE_TAG" == 'latest' ]]; then
+          python3 scripts/release/transactional-github-release.py \
+            recover-detached "$RELEASE_TAG"
+        fi
         target_sha="$(git rev-parse --verify 'HEAD^{commit}')"
         transaction_root="$(
           python3 scripts/release/transactional-github-release.py preflight \

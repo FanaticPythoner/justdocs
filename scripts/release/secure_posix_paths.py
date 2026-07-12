@@ -3,12 +3,24 @@ from __future__ import annotations
 import os
 import stat
 from contextlib import contextmanager
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Iterator
 
 
 class SecurePathError(ValueError):
     """Report a violated descriptor-bound POSIX path invariant."""
+
+
+@dataclass(frozen=True)
+class BoundCreatedDirectory:
+    """Hold a created directory and its live parent-relative descriptor binding."""
+
+    path: Path
+    parent_descriptor: int
+    descriptor: int
+    device: int
+    inode: int
 
 
 def directory_open_flags() -> int:
@@ -152,6 +164,87 @@ def canonical_directory(path: Path) -> Path:
     if alias_identity is not None:
         _verify_system_alias(path, alias_identity)
     return canonical
+
+
+def bind_created_directory(
+    created_path: Path,
+    expected_parent: Path,
+    required_prefix: str,
+) -> Path:
+    """Bind an existing directory to a canonical parent and required name prefix."""
+
+    if not required_prefix:
+        raise SecurePathError("invalid created directory prefix")
+    canonical_parent = canonical_directory(expected_parent)
+    canonical_created = canonical_directory(created_path)
+    if (
+        canonical_created.parent != canonical_parent
+        or not canonical_created.name.startswith(required_prefix)
+    ):
+        raise SecurePathError(f"invalid created directory boundary '{created_path}'")
+    return canonical_created
+
+
+def verify_bound_created_directory(binding: BoundCreatedDirectory) -> None:
+    """Verify that a bound directory retains its parent entry and inode identity."""
+
+    try:
+        current = os.stat(
+            binding.path.name,
+            dir_fd=binding.parent_descriptor,
+            follow_symlinks=False,
+        )
+    except OSError as error:
+        raise SecurePathError(
+            f"created directory changed after binding '{binding.path}'"
+        ) from error
+    if (
+        not stat.S_ISDIR(current.st_mode)
+        or current.st_dev != binding.device
+        or current.st_ino != binding.inode
+    ):
+        raise SecurePathError(
+            f"created directory changed after binding '{binding.path}'"
+        )
+
+
+@contextmanager
+def open_bound_created_directory(
+    created_path: Path,
+    expected_parent: Path,
+    required_prefix: str,
+) -> Iterator[BoundCreatedDirectory]:
+    """Open and retain a validated created directory relative to its parent."""
+
+    canonical_created = bind_created_directory(
+        created_path,
+        expected_parent,
+        required_prefix,
+    )
+    with open_absolute_directory(canonical_created.parent) as parent_descriptor:
+        try:
+            descriptor = os.open(
+                canonical_created.name,
+                directory_open_flags(),
+                dir_fd=parent_descriptor,
+            )
+        except OSError as error:
+            raise SecurePathError(
+                f"invalid created directory boundary '{created_path}'"
+            ) from error
+        try:
+            metadata = os.fstat(descriptor)
+            binding = BoundCreatedDirectory(
+                path=canonical_created,
+                parent_descriptor=parent_descriptor,
+                descriptor=descriptor,
+                device=metadata.st_dev,
+                inode=metadata.st_ino,
+            )
+            verify_bound_created_directory(binding)
+            yield binding
+        finally:
+            os.close(descriptor)
 
 
 def canonical_child(raw_path: str | Path) -> Path:

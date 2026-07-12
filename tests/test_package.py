@@ -1,11 +1,13 @@
 from __future__ import annotations
 
 import hashlib
+import http.server
 import importlib.util
 import json
 import os
 import subprocess
 import sys
+import threading
 import unittest
 from contextlib import nullcontext, redirect_stderr, redirect_stdout
 from io import StringIO
@@ -59,6 +61,18 @@ class EmptyJsonClient:
         raise self_update.UpdateSourceEmpty(f"no published release at {url}")
 
 
+def load_release_transaction_module() -> object:
+    script = Path("scripts/release/transactional-github-release.py").resolve()
+    module_name = "justdocs_transactional_github_release_test"
+    specification = importlib.util.spec_from_file_location(module_name, script)
+    if specification is None or specification.loader is None:
+        raise AssertionError("release transaction module import failed")
+    module = importlib.util.module_from_spec(specification)
+    sys.modules[module_name] = module
+    specification.loader.exec_module(module)
+    return module
+
+
 def github_release_payload(version: str) -> dict[str, object]:
     """Return GitHub release metadata with one universal wheel."""
 
@@ -97,6 +111,57 @@ def write_transactional_gh_fixture(path: Path) -> None:
             with calls_path.open("a", encoding="utf-8") as calls:
                 calls.write(json.dumps(arguments, separators=(",", ":")) + "\\n")
             state = json.loads(state_path.read_text(encoding="utf-8"))
+            transport_payload = None
+            if Path(sys.argv[0]).name == "curl":
+                if arguments == ["--disable", "--version"]:
+                    response = os.environ.get(
+                        "GH_CURL_VERSION_RESPONSE",
+                        "curl 8.10.1 (x86_64-pc-linux-gnu) fixture",
+                    )
+                    if response:
+                        print(response)
+                    raise SystemExit(int(os.environ.get("GH_CURL_VERSION_EXIT", "0")))
+                header_values = [
+                    arguments[index + 1]
+                    for index, value in enumerate(arguments[:-1])
+                    if value == "-H"
+                ]
+                authorization_sources = [
+                    value.removeprefix("@")
+                    for value in header_values
+                    if value.startswith("@/dev/fd/")
+                ]
+                transport_payload = sys.stdin.buffer.read()
+                content_lengths = [
+                    value.removeprefix("Content-Length: ")
+                    for value in header_values
+                    if value.startswith("Content-Length: ")
+                ]
+                if (
+                    arguments[:2] != ["--disable", "--fail-with-body"]
+                    or len(authorization_sources) != 1
+                    or Path(authorization_sources[0]).read_text(encoding="utf-8")
+                    != "Authorization: Bearer fixture-token\\n"
+                    or "GH_TOKEN" in os.environ
+                    or "GITHUB_TOKEN" in os.environ
+                    or "fixture-token" in "\\0".join(arguments)
+                    or arguments.count("--data-binary") != 1
+                    or arguments[arguments.index("--data-binary") + 1] != "@-"
+                    or len(content_lengths) != 1
+                    or not content_lengths[0].isdecimal()
+                    or int(content_lengths[0]) != len(transport_payload)
+                ):
+                    print("invalid curl authorization contract", file=sys.stderr)
+                    raise SystemExit(67)
+                endpoint = arguments[-1]
+                forwarded_headers = [
+                    value for value in header_values if not value.startswith("@/dev/fd/")
+                ]
+                request_method = arguments[arguments.index("--request") + 1]
+                arguments = ["api", "-X", request_method]
+                for value in forwarded_headers:
+                    arguments.extend(("-H", value))
+                arguments.extend(("--input", "-", endpoint))
 
 
             def save_state() -> None:
@@ -143,6 +208,29 @@ def write_transactional_gh_fixture(path: Path) -> None:
                     "size": asset["size"],
                     "digest": asset["digest"],
                     "state": asset["state"],
+                    "uploader": {
+                        "login": asset.get("uploaderLogin", "github-actions[bot]")
+                    },
+                }
+
+
+            def api_release() -> dict[str, object]:
+                return {
+                    "id": state["databaseId"],
+                    "tag_name": state["releaseTag"],
+                    "immutable": state["immutable"],
+                    "draft": state["isDraft"],
+                    "prerelease": state["isPrerelease"],
+                    "name": state["name"],
+                    "body": state["description"],
+                    "published_at": state["publishedAt"],
+                    "author": {
+                        "login": state.get("authorLogin", "github-actions[bot]")
+                    },
+                    "assets": [
+                        api_asset(name, asset)
+                        for name, asset in sorted(state["assets"].items())
+                    ],
                 }
 
 
@@ -152,13 +240,31 @@ def write_transactional_gh_fixture(path: Path) -> None:
                 state["isDraft"] = payload["draft"]
                 state["isPrerelease"] = payload["prerelease"]
                 state["isLatest"] = payload["make_latest"] == "true"
+                if not payload["draft"]:
+                    state["publishedAt"] = "2026-07-12T00:00:00Z"
+                if payload["draft"] and os.environ.get(
+                    "GH_FORCE_DRAFT_TAG_DETACH", "1"
+                ) == "1":
+                    state["releaseTag"] = f"untagged-{state['databaseId']}"
+                elif "tag_name" in payload:
+                    state["releaseTag"] = payload["tag_name"]
 
 
             if arguments[:2] == ["api", "graphql"]:
                 if any(value.startswith("ref=refs/tags/") for value in arguments):
+                    requested_ref = next(
+                        value.removeprefix("ref=refs/tags/")
+                        for value in arguments
+                        if value.startswith("ref=refs/tags/")
+                    )
+                    target = (
+                        state["tagSha"]
+                        if requested_ref == "latest"
+                        else state.get("tagRefs", {}).get(requested_ref)
+                    )
                     reference = None
-                    if state["tagSha"] is not None:
-                        reference = {"target": {"oid": state["tagSha"]}}
+                    if target is not None:
+                        reference = {"target": {"oid": target}}
                     print(json.dumps({"data": {"repository": {"ref": reference}}}))
                     raise SystemExit(0)
                 state["releaseMetadataQueryCount"] = (
@@ -183,8 +289,13 @@ def write_transactional_gh_fixture(path: Path) -> None:
                     save_state()
                     print("injected release query failure", file=sys.stderr)
                     raise SystemExit(59)
+                requested_tag = next(
+                    value.removeprefix("tag=")
+                    for value in arguments
+                    if value.startswith("tag=")
+                )
                 release = None
-                if state["exists"]:
+                if state["exists"] and state["releaseTag"] == requested_tag:
                     release = {
                         "databaseId": state["databaseId"],
                         "immutable": state["immutable"],
@@ -193,15 +304,32 @@ def write_transactional_gh_fixture(path: Path) -> None:
                         "isPrerelease": state["isPrerelease"],
                         "name": state["name"],
                         "description": state["description"],
+                        "tagName": state["releaseTag"],
                     }
                 print(json.dumps({"data": {"repository": {"release": release}}}))
                 raise SystemExit(0)
 
             if arguments[:3] == ["api", "--paginate", "--slurp"]:
-                assets = [
-                    api_asset(name, asset)
-                    for name, asset in sorted(state["assets"].items())
-                ]
+                if "/releases?" in arguments[-1]:
+                    releases = [api_release()] if state["exists"] else []
+                    releases.extend(state.get("otherReleases", []))
+                    print(json.dumps([releases]))
+                    raise SystemExit(0)
+                release_id = int(arguments[-1].split("/releases/", 1)[1].split("/", 1)[0])
+                if release_id == state["databaseId"]:
+                    assets = [
+                        api_asset(name, asset)
+                        for name, asset in sorted(state["assets"].items())
+                    ]
+                else:
+                    selected_release = next(
+                        release
+                        for release in state.get("otherReleases", [])
+                        if release["id"] == release_id
+                    )
+                    assets = selected_release.get(
+                        "fullAssets", selected_release["assets"]
+                    )
                 print(json.dumps([assets]))
                 raise SystemExit(0)
 
@@ -232,6 +360,52 @@ def write_transactional_gh_fixture(path: Path) -> None:
                 and "/compare/" in arguments[-1]
             ):
                 print(json.dumps({"status": state["compareStatus"]}))
+                raise SystemExit(0)
+
+            if (
+                arguments[:1] == ["api"]
+                and arguments[-1].startswith("repos/")
+                and "/releases/" in arguments[-1]
+                and "/assets/" not in arguments[-1]
+                and "-X" not in arguments
+                and "--method" not in arguments
+            ):
+                release_id = int(arguments[-1].rsplit("/", 1)[1])
+                selected_release = next(
+                    (
+                        release
+                        for release in state.get("otherReleases", [])
+                        if release["id"] == release_id
+                    ),
+                    None,
+                )
+                if state["exists"] and release_id == state["databaseId"]:
+                    state["releaseIdQueryCount"] = (
+                        state.get("releaseIdQueryCount", 0) + 1
+                    )
+                    if os.environ.get("GH_MUTATE_ON_RELEASE_ID_QUERY_COUNT") == str(
+                        state["releaseIdQueryCount"]
+                    ):
+                        state["description"] = "Concurrent release mutation\\n"
+                    save_state()
+                    selected_release = api_release()
+                if selected_release is None:
+                    print("gh: Not Found (HTTP 404)", file=sys.stderr)
+                    raise SystemExit(1)
+                if (
+                    state.get("createCompleted")
+                    and os.environ.get("GH_FAIL_FIRST_RELEASE_QUERY_AFTER_CREATE")
+                    == "1"
+                    and not state.get("releaseQueryFailed")
+                ):
+                    state["releaseQueryFailed"] = True
+                    if os.environ.get("GH_REPLACE_MARKER_WITH_EXTERNAL_DRAFT") == "1":
+                        state["name"] = "External draft"
+                        state["description"] = "external notes\\n"
+                    save_state()
+                    print("injected release query failure", file=sys.stderr)
+                    raise SystemExit(59)
+                print(json.dumps(selected_release))
                 raise SystemExit(0)
 
             if (
@@ -300,7 +474,7 @@ def write_transactional_gh_fixture(path: Path) -> None:
                     )
                     input_path = option("--input")
                     payload = (
-                        sys.stdin.buffer.read()
+                        transport_payload
                         if input_path == "-"
                         else Path(input_path).read_bytes()
                     )
@@ -371,12 +545,27 @@ def write_transactional_gh_fixture(path: Path) -> None:
                     state["createCompleted"] = True
                     if state["tagSha"] is None:
                         state["tagSha"] = payload["target_commitish"]
+                    state["releaseTag"] = payload["tag_name"]
                     apply_release_payload(payload)
                     save_state()
+                    if os.environ.get("GH_CRASH_AFTER_CREATE") == "1":
+                        os.kill(os.getppid(), signal.SIGKILL)
+                        raise SystemExit(58)
+                    print(json.dumps(api_release()))
                     raise SystemExit(0)
 
                 if "/releases/assets/" in endpoint and method == "PATCH":
                     asset_id = int(endpoint.rsplit("/", 1)[1])
+                    next_rename_count = state.get("assetRenameCount", 0) + 1
+                    if (
+                        os.environ.get("GH_FAIL_BEFORE_ASSET_RENAME_COUNT")
+                        == str(next_rename_count)
+                        and not state.get("assetRenamePreconditionFailed")
+                    ):
+                        state["assetRenamePreconditionFailed"] = True
+                        save_state()
+                        print("injected pre-rename failure", file=sys.stderr)
+                        raise SystemExit(64)
                     selected = next(
                         name
                         for name, asset in state["assets"].items()
@@ -394,7 +583,22 @@ def write_transactional_gh_fixture(path: Path) -> None:
                         if value.startswith("label=")
                     )
                     state["assets"][name] = asset
+                    state["assetRenameCount"] = state.get("assetRenameCount", 0) + 1
                     save_state()
+                    if os.environ.get("GH_CRASH_AFTER_ASSET_RENAME_COUNT") == str(
+                        state["assetRenameCount"]
+                    ):
+                        os.kill(os.getppid(), signal.SIGKILL)
+                        raise SystemExit(58)
+                    if (
+                        os.environ.get("GH_FAIL_AFTER_ASSET_RENAME_COUNT")
+                        == str(state["assetRenameCount"])
+                        and not state.get("assetRenameFailed")
+                    ):
+                        state["assetRenameFailed"] = True
+                        save_state()
+                        print("injected post-rename failure", file=sys.stderr)
+                        raise SystemExit(64)
                     print(json.dumps(api_asset(name, asset)))
                     raise SystemExit(0)
 
@@ -418,13 +622,26 @@ def write_transactional_gh_fixture(path: Path) -> None:
                     state.setdefault("releaseMutationIds", []).append(release_id)
                     if method == "DELETE":
                         state["exists"] = False
+                        state["releaseTag"] = None
                         state["assets"] = {}
                         save_state()
                         raise SystemExit(0)
                     if method == "PATCH":
+                        input_path = option("--input")
                         payload = json.loads(
-                            Path(option("--input")).read_text(encoding="utf-8")
+                            transport_payload.decode("utf-8")
+                            if input_path == "-"
+                            else Path(input_path).read_text(encoding="utf-8")
                         )
+                        if (
+                            payload["draft"] is False
+                            and os.environ.get("GH_FAIL_BEFORE_PUBLISH_PATCH") == "1"
+                            and not state.get("publishPatchPreconditionFailed")
+                        ):
+                            state["publishPatchPreconditionFailed"] = True
+                            save_state()
+                            print("injected pre-publish failure", file=sys.stderr)
+                            raise SystemExit(63)
                         apply_release_payload(payload)
                         save_state()
                         if (
@@ -442,6 +659,7 @@ def write_transactional_gh_fixture(path: Path) -> None:
                             save_state()
                             print("injected post-publish failure", file=sys.stderr)
                             raise SystemExit(63)
+                        print(json.dumps(api_release()))
                         raise SystemExit(0)
 
                 if "/git/refs" in endpoint:
@@ -560,12 +778,124 @@ def transactional_release_state(
         "isPrerelease": False,
         "name": "Original release",
         "description": "original notes\n",
+        "publishedAt": "2026-07-09T13:25:43Z",
         "assets": encoded_assets,
         "nextAssetId": 901 + len(encoded_assets),
         "nextReleaseId": 702,
+        "releaseTag": "latest" if exists else None,
         "tagSha": tag_sha,
         "targetSha": TRANSACTION_TARGET_SHA,
         "compareStatus": "ahead",
+    }
+
+
+def legacy_detached_release_state(
+    *,
+    progress: int = 0,
+    terminal: bool = False,
+) -> dict[str, object]:
+    payloads = {
+        "install.ps1": b"powershell installer\n",
+        "install.sh": b"posix installer\n",
+        "justdocs-0.1.0-py3-none-any.whl": b"wheel payload\n",
+        "justdocs-0.1.0.tar.gz": b"source payload\n",
+    }
+    manifest = "".join(
+        f"{hashlib.sha256(payload).hexdigest()}  {name}\n"
+        for name, payload in payloads.items()
+    ).encode("ascii")
+    payloads["SHA256SUMS.txt"] = manifest
+    ordered_names = tuple(
+        sorted(name for name in payloads if name != "SHA256SUMS.txt")
+    ) + ("SHA256SUMS.txt",)
+    asset_id_base = 1900
+    assets: dict[str, dict[str, object]] = {}
+    for offset, name in enumerate(ordered_names, start=1):
+        payload = payloads[name]
+        asset_id = asset_id_base + offset
+        current_name = (
+            name if terminal or offset <= progress else f"justdocs-rollback-{asset_id}"
+        )
+        assets[current_name] = {
+            "id": asset_id,
+            "hex": payload.hex(),
+            "label": "",
+            "content_type": (
+                "text/plain"
+                if name.endswith((".txt", ".ps1", ".sh"))
+                else "application/gzip"
+                if name.endswith(".tar.gz")
+                else "application/octet-stream"
+            ),
+            "size": len(payload),
+            "digest": f"sha256:{hashlib.sha256(payload).hexdigest()}",
+            "state": "uploaded",
+        }
+    target_sha = TRANSACTION_TARGET_SHA
+    detached_tag = f"untagged-{hashlib.sha256(target_sha.encode()).hexdigest()[:20]}"
+    return {
+        "exists": True,
+        "databaseId": asset_id_base - 1,
+        "immutable": False,
+        "isDraft": not terminal,
+        "isLatest": False,
+        "isPrerelease": True,
+        "name": f"Latest Nightly Build ({target_sha[:12]})",
+        "description": (
+            "# justdocs latest\n\n"
+            "- branch: `main`\n"
+            f"- target commit: [`{target_sha}`]"
+            f"(https://github.com/FanaticPythoner/justdocs/commit/{target_sha})\n"
+            "- base stable release: none\n"
+        ),
+        "publishedAt": "2026-07-09T13:25:43Z",
+        "assets": assets,
+        "nextAssetId": asset_id_base + len(assets) + 1,
+        "nextReleaseId": asset_id_base,
+        "releaseTag": "latest" if terminal else detached_tag,
+        "tagSha": target_sha,
+        "targetSha": target_sha,
+        "compareStatus": "ahead",
+    }
+
+
+def legacy_other_release() -> dict[str, object]:
+    source = legacy_detached_release_state()
+    release_id_offset = 100
+    assets = []
+    for name, asset in source["assets"].items():
+        asset_id = asset["id"] + release_id_offset
+        asset_name = (
+            f"justdocs-rollback-{asset_id}"
+            if name == f"justdocs-rollback-{asset['id']}"
+            else name
+        )
+        assets.append(
+            {
+                "id": asset_id,
+                "name": asset_name,
+                "label": None,
+                "content_type": asset["content_type"],
+                "size": asset["size"],
+                "digest": asset["digest"],
+                "state": asset["state"],
+                "uploader": {"login": "github-actions[bot]"},
+            }
+        )
+    return {
+        "id": source["databaseId"] + release_id_offset,
+        "tag_name": (
+            "untagged-" + hashlib.sha256(b"second detached release").hexdigest()[:20]
+        ),
+        "immutable": False,
+        "draft": True,
+        "prerelease": True,
+        "name": source["name"],
+        "body": source["description"],
+        "published_at": source["publishedAt"],
+        "author": {"login": "github-actions[bot]"},
+        "assets": assets,
+        "fullAssets": assets,
     }
 
 
@@ -574,10 +904,12 @@ def transactional_release_environment(
     state: dict[str, object],
 ) -> tuple[dict[str, str], Path, Path, Path]:
     fake_gh = root / "gh"
+    fake_curl = root / "curl"
     gh_calls_path = root / "gh-calls.jsonl"
     gh_state_path = root / "gh-state.json"
     transaction_parent = root / "transaction-temp"
     write_transactional_gh_fixture(fake_gh)
+    write_transactional_gh_fixture(fake_curl)
     gh_calls_path.write_text("", encoding="utf-8")
     gh_state_path.write_text(
         json.dumps(state, sort_keys=True, separators=(",", ":")) + "\n",
@@ -588,6 +920,7 @@ def transactional_release_environment(
         "GH_CALLS": str(gh_calls_path),
         "GH_STATE": str(gh_state_path),
         "GITHUB_REPOSITORY": "FanaticPythoner/justdocs",
+        "GH_TOKEN": "fixture-token",
         "PATH": os.pathsep.join((str(root), os.environ["PATH"])),
     }
     return environment, gh_calls_path, gh_state_path, transaction_parent
@@ -598,13 +931,19 @@ def release_transaction_calls(path: Path) -> list[list[str]]:
 
 
 def release_transaction_mutations(calls: list[list[str]]) -> list[list[str]]:
-    return [
+    mutations = [
         call
         for call in calls
-        if call[:2] != ["api", "graphql"]
-        and call[:3] != ["api", "--paginate", "--slurp"]
-        and not (call[:1] == ["api"] and "/commits/" in call[-1] and "-X" not in call)
+        if "-X" in call or "--method" in call or "--request" in call
     ]
+    for call in mutations:
+        if (
+            call[:1] == ["api"]
+            and "--input" in call
+            and call[call.index("--input") + 1] == "-"
+        ):
+            raise AssertionError("gh api mutation uses unknown-length standard input")
+    return mutations
 
 
 def release_state_projection(state: dict[str, object]) -> dict[str, object]:
@@ -619,6 +958,7 @@ def release_state_projection(state: dict[str, object]) -> dict[str, object]:
             "isPrerelease",
             "name",
             "description",
+            "releaseTag",
         )
     }
     assets = state["assets"]
@@ -667,6 +1007,24 @@ def run_release_preflight(
     )
 
 
+def run_release_recover_detached(
+    transaction_script: Path,
+    environment: dict[str, str],
+) -> subprocess.CompletedProcess[str]:
+    return subprocess.run(
+        (
+            sys.executable,
+            str(transaction_script),
+            "recover-detached",
+            "latest",
+        ),
+        check=False,
+        env=environment,
+        text=True,
+        capture_output=True,
+    )
+
+
 def run_release_publish(
     transaction_script: Path,
     environment: dict[str, str],
@@ -704,19 +1062,21 @@ def cleanup_release_fixture(
     environment: dict[str, str],
     stage_root: Path | None = None,
 ) -> None:
-    subprocess.run(
-        (
-            sys.executable,
-            str(transaction_script),
-            "cleanup",
-            str(transaction_root),
-            str(transaction_parent),
-        ),
-        check=True,
-        env=environment,
-        text=True,
-        capture_output=True,
+    cleanup_command = (
+        sys.executable,
+        str(transaction_script),
+        "cleanup",
+        str(transaction_root),
+        str(transaction_parent),
     )
+    for _attempt in range(2):
+        subprocess.run(
+            cleanup_command,
+            check=True,
+            env=environment,
+            text=True,
+            capture_output=True,
+        )
     if stage_root is not None:
         subprocess.run(
             (
@@ -1538,6 +1898,14 @@ class ThemePackageTest(unittest.TestCase):
             "concurrency:\n  group: latest-main\n  cancel-in-progress: false",
             latest,
         )
+        for workflow in (release, latest):
+            self.assertIn(
+                "concurrency:\n"
+                "      group: github-release-mutation-${{ github.repository }}\n"
+                "      cancel-in-progress: false\n"
+                "      queue: max",
+                workflow,
+            )
         self.assertIn("scripts/release/build-python-package.sh", build_action)
         self.assertIn("SHA256SUMS.txt", build_script)
         self.assertIn(
@@ -1555,7 +1923,7 @@ class ThemePackageTest(unittest.TestCase):
         self.assertNotIn("purge-github-release-assets.sh", release_action)
         self.assertNotIn("ensure-github-release.sh", release_action)
         self.assertEqual(4, release_action.count("stage-release-inputs.py"))
-        self.assertEqual(4, release_action.count("transactional-github-release.py"))
+        self.assertEqual(5, release_action.count("transactional-github-release.py"))
         self.assertIn(
             "- name: Cleanup release transaction\n      if: always()",
             release_action,
@@ -1563,6 +1931,10 @@ class ThemePackageTest(unittest.TestCase):
         self.assertLess(
             release_action.index("- name: Verify staged inputs"),
             release_action.index("- name: Preflight release transaction"),
+        )
+        self.assertLess(
+            release_action.index('recover-detached "$RELEASE_TAG"'),
+            release_action.index('target_sha="$(git rev-parse'),
         )
         self.assertLess(
             release_action.index("- name: Preflight release transaction"),
@@ -1595,8 +1967,14 @@ class ThemePackageTest(unittest.TestCase):
             ("latest", latest),
         ):
             for run_block in workflow_source.split("run: |")[1:]:
+                script_lines: list[str] = []
+                for line in run_block.splitlines():
+                    indentation = len(line) - len(line.lstrip())
+                    if line.strip() and indentation <= 6:
+                        break
+                    script_lines.append(line)
                 with self.subTest(workflow=workflow_name, run_block=run_block[:80]):
-                    self.assertNotIn("${{", run_block.split("\n      - name:", 1)[0])
+                    self.assertNotIn("${{", "\n".join(script_lines))
         self.assertIn("packaging>=24", pyproject)
         self.assertNotIn("packaging>=24,<", pyproject)
         self.assertIn('requires = ["setuptools==83.0.0"]', pyproject)
@@ -1960,6 +2338,230 @@ class ThemePackageTest(unittest.TestCase):
         )
 
     @unittest.skipIf(os.name == "nt", "POSIX release transaction path")
+    def test_release_upload_curl_sends_exact_zero_and_nonzero_lengths(self) -> None:
+        module = load_release_transaction_module()
+        for payload in (b"", b"wire payload"):
+            with self.subTest(size=len(payload)), TemporaryDirectory() as directory:
+                path = Path(directory) / "asset.bin"
+                path.write_bytes(payload)
+                records: list[dict[str, object]] = []
+
+                class UploadHandler(http.server.BaseHTTPRequestHandler):
+                    def do_POST(self) -> None:
+                        content_length = self.headers.get("Content-Length")
+                        body = self.rfile.read(int(content_length or "0"))
+                        records.append(
+                            {
+                                "content_length": content_length,
+                                "transfer_encoding": self.headers.get(
+                                    "Transfer-Encoding"
+                                ),
+                                "authorization": self.headers.get("Authorization"),
+                                "body": body,
+                            }
+                        )
+                        self.send_response(200)
+                        self.send_header("Content-Type", "application/json")
+                        self.end_headers()
+                        self.wfile.write(b"{}")
+
+                    def log_message(self, *_args: object) -> None:
+                        return
+
+                server = http.server.HTTPServer(("127.0.0.1", 0), UploadHandler)
+                worker = threading.Thread(target=server.handle_request)
+                worker.start()
+                try:
+                    with patch.dict(os.environ, {"GH_TOKEN": "fixture-token"}):
+                        completed = module._run_curl_with_regular_input(
+                            (
+                                "curl",
+                                "--disable",
+                                "--fail-with-body",
+                                "--silent",
+                                "--show-error",
+                                "--proto",
+                                "=http",
+                                "--request",
+                                "POST",
+                                "-H",
+                                "Content-Type: application/octet-stream",
+                                "--data-binary",
+                                "@-",
+                                f"http://127.0.0.1:{server.server_port}/upload",
+                            ),
+                            path,
+                        )
+                finally:
+                    worker.join(5)
+                    server.server_close()
+                self.assertEqual("{}", completed.stdout)
+                self.assertEqual(
+                    [
+                        {
+                            "content_length": str(len(payload)),
+                            "transfer_encoding": None,
+                            "authorization": "Bearer fixture-token",
+                            "body": payload,
+                        }
+                    ],
+                    records,
+                )
+
+    @unittest.skipIf(os.name == "nt", "POSIX release transaction path")
+    def test_release_json_curl_sends_exact_zero_and_nonzero_lengths(self) -> None:
+        module = load_release_transaction_module()
+        for payload in (b"", b'{"draft":false}\n'):
+            with self.subTest(size=len(payload)):
+                records: list[dict[str, object]] = []
+
+                class PatchHandler(http.server.BaseHTTPRequestHandler):
+                    def do_PATCH(self) -> None:
+                        content_length = self.headers.get("Content-Length")
+                        body = self.rfile.read(int(content_length or "0"))
+                        records.append(
+                            {
+                                "content_length": content_length,
+                                "transfer_encoding": self.headers.get(
+                                    "Transfer-Encoding"
+                                ),
+                                "authorization": self.headers.get("Authorization"),
+                                "body": body,
+                            }
+                        )
+                        self.send_response(200)
+                        self.send_header("Content-Type", "application/json")
+                        self.end_headers()
+                        self.wfile.write(b"{}")
+
+                    def log_message(self, *_args: object) -> None:
+                        return
+
+                server = http.server.HTTPServer(("127.0.0.1", 0), PatchHandler)
+                worker = threading.Thread(target=server.handle_request)
+                worker.start()
+                try:
+                    with patch.dict(os.environ, {"GH_TOKEN": "fixture-token"}):
+                        completed = module._run_curl_with_bytes_input(
+                            (
+                                "curl",
+                                "--disable",
+                                "--fail-with-body",
+                                "--silent",
+                                "--show-error",
+                                "--proto",
+                                "=http",
+                                "--request",
+                                "PATCH",
+                                "-H",
+                                "Content-Type: application/json",
+                                "--data-binary",
+                                "@-",
+                                f"http://127.0.0.1:{server.server_port}/release",
+                            ),
+                            payload,
+                        )
+                finally:
+                    worker.join(5)
+                    server.server_close()
+                self.assertEqual("{}", completed.stdout)
+                self.assertEqual(
+                    [
+                        {
+                            "content_length": str(len(payload)),
+                            "transfer_encoding": None,
+                            "authorization": "Bearer fixture-token",
+                            "body": payload,
+                        }
+                    ],
+                    records,
+                )
+
+    @unittest.skipIf(os.name == "nt", "POSIX release transaction path")
+    def test_release_curl_rejects_unsafe_authorization_tokens(self) -> None:
+        module = load_release_transaction_module()
+        read_descriptor, write_descriptor = os.pipe()
+        try:
+            pipe_buffer = os.fpathconf(write_descriptor, "PC_PIPE_BUF")
+        finally:
+            os.close(read_descriptor)
+            os.close(write_descriptor)
+        arguments = (
+            "curl",
+            "--disable",
+            "--fail-with-body",
+            "--silent",
+            "--show-error",
+            "--proto",
+            "=https",
+            "--request",
+            "PATCH",
+            "--data-binary",
+            "@-",
+            "https://api.github.com/repos/FanaticPythoner/justdocs/releases/1",
+        )
+        for token in (
+            "",
+            "space token",
+            "line\nbreak",
+            "nonascii-é",
+            "a" * pipe_buffer,
+        ):
+            with (
+                self.subTest(token_length=len(token)),
+                patch.dict(os.environ, {"GH_TOKEN": token}),
+                self.assertRaises(module.ReleaseTransactionError),
+            ):
+                module._run_curl_with_bytes_input(arguments, b"{}")
+
+    @unittest.skipIf(os.name == "nt", "POSIX release transaction path")
+    def test_release_preflight_rejects_transaction_root_substitution(self) -> None:
+        module = load_release_transaction_module()
+        with TemporaryDirectory() as directory:
+            root = Path(directory)
+            parent = root / "runner-temp"
+            displaced = root / "displaced-transaction"
+            parent.mkdir()
+            original_write = module._write_json_exclusive_at
+
+            def write_then_substitute(
+                directory_descriptor: int,
+                name: str,
+                payload: object,
+            ) -> None:
+                original_write(directory_descriptor, name, payload)
+                created = next(parent.iterdir())
+                created.rename(displaced)
+                created.mkdir()
+
+            with (
+                patch.object(
+                    module,
+                    "_validate_preflight_inputs",
+                    return_value="FanaticPythoner/justdocs",
+                ),
+                patch.object(module, "_validate_target_sha", return_value="2" * 40),
+                patch.object(module, "_resolve_commit", return_value="2" * 40),
+                patch.object(module, "_query_release_by_tag", return_value=None),
+                patch.object(module, "_assert_no_detached_transaction_residue"),
+                patch.object(module, "_validate_upload_transport"),
+                patch.object(
+                    module,
+                    "_write_json_exclusive_at",
+                    side_effect=write_then_substitute,
+                ),
+                self.assertRaisesRegex(
+                    module.ReleaseTransactionError,
+                    "created directory changed after binding",
+                ),
+            ):
+                module._preflight("latest", str(parent), "false", "2" * 40)
+            replacement = next(parent.iterdir())
+            self.assertTrue(replacement.is_dir())
+            self.assertEqual([], list(replacement.iterdir()))
+            self.assertTrue((displaced / "transaction.json").is_file())
+
+    @unittest.skipIf(os.name == "nt", "POSIX release transaction path")
     def test_release_transaction_immutable_exact_noop_and_mismatch_rejection(
         self,
     ) -> None:
@@ -2076,6 +2678,64 @@ class ThemePackageTest(unittest.TestCase):
             action.index("- name: Publish release transaction"),
         )
         self.assertNotIn("- name: Create or move tag", action)
+
+    @unittest.skipIf(os.name == "nt", "POSIX release transaction path")
+    def test_release_transaction_rejects_preexisting_draft_before_mutation(
+        self,
+    ) -> None:
+        transaction_script = Path(
+            "scripts/release/transactional-github-release.py"
+        ).resolve()
+        with TemporaryDirectory() as directory:
+            root = Path(directory)
+            stage_root, dist_dir, notes_file = stage_transaction_assets(
+                root,
+                {"package.whl": b"replacement"},
+                "replacement notes\n",
+            )
+            state = transactional_release_state(
+                exists=True,
+                assets={"package.whl": b"original"},
+            )
+            state["isDraft"] = True
+            state["isLatest"] = False
+            expected = release_state_projection(state)
+            environment, calls_path, state_path, transaction_parent = (
+                transactional_release_environment(root, state)
+            )
+            preflight = run_release_preflight(
+                transaction_script,
+                environment,
+                transaction_parent,
+            )
+            self.assertEqual(0, preflight.returncode, preflight.stderr)
+            transaction_root = Path(preflight.stdout.strip())
+            rejected = run_release_publish(
+                transaction_script,
+                environment,
+                transaction_root,
+                notes_file,
+                dist_dir,
+            )
+            self.assertEqual(2, rejected.returncode)
+            self.assertIn("preexisting draft releases are unsupported", rejected.stderr)
+            self.assertEqual(
+                [],
+                release_transaction_mutations(release_transaction_calls(calls_path)),
+            )
+            current = json.loads(state_path.read_text(encoding="utf-8"))
+            self.assertEqual(expected, release_state_projection(current))
+            journal = json.loads(
+                (transaction_root / "transaction.json").read_text(encoding="utf-8")
+            )
+            self.assertEqual("preflight", journal["phase"])
+            cleanup_release_fixture(
+                transaction_script,
+                transaction_root,
+                transaction_parent,
+                environment,
+                stage_root,
+            )
 
     @unittest.skipIf(os.name == "nt", "POSIX release transaction path")
     def test_release_transaction_validates_operand_boundaries_before_github(
@@ -2328,7 +2988,11 @@ class ThemePackageTest(unittest.TestCase):
             root = Path(directory)
             stage_root, dist_dir, notes_file = stage_transaction_assets(
                 root,
-                {"package.tar.gz": b"source", "package.whl": b"wheel"},
+                {
+                    "empty.bin": b"",
+                    "package.tar.gz": b"source",
+                    "package.whl": b"wheel",
+                },
                 "new release notes\n",
             )
             environment, gh_calls_path, state_path, transaction_parent = (
@@ -2407,6 +3071,10 @@ class ThemePackageTest(unittest.TestCase):
                 ["false", "legacy"],
                 [value["make_latest"] for value in patch_payloads],
             )
+            self.assertEqual(
+                ["latest", "latest"],
+                [value["tag_name"] for value in patch_payloads],
+            )
             upload_calls = [
                 call
                 for call in calls
@@ -2428,6 +3096,7 @@ class ThemePackageTest(unittest.TestCase):
             state = json.loads(state_path.read_text(encoding="utf-8"))
             self.assertTrue(state["exists"])
             self.assertFalse(state["isDraft"])
+            self.assertEqual("latest", state["releaseTag"])
             self.assertEqual("New release", state["name"])
             self.assertEqual("new release notes\n", state["description"])
             self.assertEqual(
@@ -2464,6 +3133,1085 @@ class ThemePackageTest(unittest.TestCase):
             )
 
     @unittest.skipIf(os.name == "nt", "POSIX release transaction path")
+    def test_release_transaction_recovers_create_before_id_journal(self) -> None:
+        transaction_script = Path(
+            "scripts/release/transactional-github-release.py"
+        ).resolve()
+        with TemporaryDirectory() as directory:
+            root = Path(directory)
+            stage_root, dist_dir, notes_file = stage_transaction_assets(
+                root,
+                {"package.whl": b"wheel"},
+                "new release notes\n",
+            )
+            environment, _, state_path, transaction_parent = (
+                transactional_release_environment(
+                    root,
+                    transactional_release_state(exists=False),
+                )
+            )
+            preflight = run_release_preflight(
+                transaction_script,
+                environment,
+                transaction_parent,
+            )
+            self.assertEqual(0, preflight.returncode, preflight.stderr)
+            transaction_root = Path(preflight.stdout.strip())
+            environment["GH_CRASH_AFTER_CREATE"] = "1"
+            crashed = run_release_publish(
+                transaction_script,
+                environment,
+                transaction_root,
+                notes_file,
+                dist_dir,
+                release_name="New release",
+            )
+            self.assertEqual(-9, crashed.returncode)
+            journal = json.loads(
+                (transaction_root / "transaction.json").read_text(encoding="utf-8")
+            )
+            self.assertEqual("mutating", journal["phase"])
+            self.assertIsNone(journal["created_release_id"])
+            self.assertEqual([], journal["precreate_release_ids"])
+            self.assertTrue(journal["create_attempted"])
+            orphan = json.loads(state_path.read_text(encoding="utf-8"))
+            self.assertTrue(orphan["exists"])
+            self.assertTrue(orphan["isDraft"])
+            self.assertTrue(orphan["releaseTag"].startswith("untagged-"))
+            environment.pop("GH_CRASH_AFTER_CREATE")
+            cleanup_release_fixture(
+                transaction_script,
+                transaction_root,
+                transaction_parent,
+                environment,
+                stage_root,
+            )
+            recovered = json.loads(state_path.read_text(encoding="utf-8"))
+            self.assertFalse(recovered["exists"])
+
+    @unittest.skipIf(os.name == "nt", "POSIX release transaction path")
+    def test_release_transaction_preserves_mutated_create_without_id(self) -> None:
+        transaction_script = Path(
+            "scripts/release/transactional-github-release.py"
+        ).resolve()
+        with TemporaryDirectory() as directory:
+            root = Path(directory)
+            stage_root, dist_dir, notes_file = stage_transaction_assets(
+                root,
+                {"package.whl": b"wheel"},
+                "new release notes\n",
+            )
+            environment, calls_path, state_path, transaction_parent = (
+                transactional_release_environment(
+                    root,
+                    transactional_release_state(exists=False),
+                )
+            )
+            preflight = run_release_preflight(
+                transaction_script,
+                environment,
+                transaction_parent,
+            )
+            self.assertEqual(0, preflight.returncode, preflight.stderr)
+            transaction_root = Path(preflight.stdout.strip())
+            environment["GH_CRASH_AFTER_CREATE"] = "1"
+            crashed = run_release_publish(
+                transaction_script,
+                environment,
+                transaction_root,
+                notes_file,
+                dist_dir,
+                release_name="New release",
+            )
+            self.assertEqual(-9, crashed.returncode)
+            environment.pop("GH_CRASH_AFTER_CREATE")
+            mutated = json.loads(state_path.read_text(encoding="utf-8"))
+            mutated["name"] = "External draft"
+            mutated["description"] = "external notes\n"
+            state_path.write_text(
+                json.dumps(mutated, sort_keys=True, separators=(",", ":")) + "\n",
+                encoding="utf-8",
+            )
+            cleanup = subprocess.run(
+                (
+                    sys.executable,
+                    str(transaction_script),
+                    "cleanup",
+                    str(transaction_root),
+                    str(transaction_parent),
+                ),
+                check=False,
+                env=environment,
+                text=True,
+                capture_output=True,
+            )
+            self.assertEqual(2, cleanup.returncode)
+            self.assertIn("created release identity is indeterminate", cleanup.stderr)
+            self.assertTrue(transaction_root.exists())
+            preserved = json.loads(state_path.read_text(encoding="utf-8"))
+            self.assertTrue(preserved["exists"])
+            self.assertEqual("External draft", preserved["name"])
+            self.assertEqual(
+                [],
+                [
+                    call
+                    for call in release_transaction_calls(calls_path)
+                    if call[:3] == ["api", "-X", "DELETE"]
+                ],
+            )
+            subprocess.run(
+                (
+                    sys.executable,
+                    "scripts/release/stage-release-inputs.py",
+                    "cleanup",
+                    str(stage_root),
+                    str(stage_root.parent),
+                ),
+                check=True,
+                text=True,
+                capture_output=True,
+            )
+
+    @unittest.skipIf(os.name == "nt", "POSIX release transaction path")
+    def test_release_preflight_detects_detached_transaction_residue(self) -> None:
+        transaction_script = Path(
+            "scripts/release/transactional-github-release.py"
+        ).resolve()
+        marker = "justdocs release transaction justdocs-release-transaction-lost1234"
+
+        def detached_state(kind: str) -> dict[str, object]:
+            state = transactional_release_state(
+                exists=True,
+                assets={"package.whl": b"wheel"},
+            )
+            state["isDraft"] = True
+            state["isLatest"] = False
+            state["releaseTag"] = "untagged-lost-release"
+            if kind == "marker":
+                state["name"] = marker
+                state["description"] = marker
+            elif kind == "rollback":
+                asset = state["assets"].pop("package.whl")
+                state["assets"][f"justdocs-rollback-{asset['id']}"] = asset
+            return state
+
+        for kind, blocked in (
+            ("marker", True),
+            ("rollback", True),
+            ("normal", False),
+        ):
+            with self.subTest(kind=kind), TemporaryDirectory() as directory:
+                root = Path(directory)
+                environment, calls_path, _, transaction_parent = (
+                    transactional_release_environment(root, detached_state(kind))
+                )
+                preflight = run_release_preflight(
+                    transaction_script,
+                    environment,
+                    transaction_parent,
+                )
+                if blocked:
+                    self.assertEqual(2, preflight.returncode)
+                    self.assertIn(
+                        "detached GitHub release transaction residue detected",
+                        preflight.stderr,
+                    )
+                    self.assertEqual([], list(transaction_parent.iterdir()))
+                    self.assertEqual(
+                        [],
+                        release_transaction_mutations(
+                            release_transaction_calls(calls_path)
+                        ),
+                    )
+                else:
+                    self.assertEqual(0, preflight.returncode, preflight.stderr)
+                    cleanup_release_fixture(
+                        transaction_script,
+                        Path(preflight.stdout.strip()),
+                        transaction_parent,
+                        environment,
+                    )
+
+    @unittest.skipIf(os.name == "nt", "POSIX release transaction path")
+    def test_release_preflight_detects_residue_with_tagged_release(self) -> None:
+        transaction_script = Path(
+            "scripts/release/transactional-github-release.py"
+        ).resolve()
+        with TemporaryDirectory() as directory:
+            root = Path(directory)
+            state = transactional_release_state(exists=True)
+            marker = (
+                "justdocs release transaction justdocs-release-transaction-coexist1"
+            )
+            state["otherReleases"] = [
+                {
+                    "id": 1701,
+                    "tag_name": "untagged-coexisting-release",
+                    "immutable": False,
+                    "draft": True,
+                    "prerelease": False,
+                    "name": marker,
+                    "body": marker,
+                    "assets": [],
+                },
+                {
+                    "id": 1702,
+                    "tag_name": "untagged-paginated-release",
+                    "immutable": False,
+                    "draft": True,
+                    "prerelease": False,
+                    "name": "External draft",
+                    "body": "external notes\n",
+                    "assets": [],
+                    "fullAssets": [
+                        {
+                            "id": 1801,
+                            "name": "justdocs-rollback-1801",
+                            "label": None,
+                            "content_type": "application/octet-stream",
+                            "size": 5,
+                            "digest": (
+                                "sha256:" + hashlib.sha256(b"wheel").hexdigest()
+                            ),
+                            "state": "uploaded",
+                        }
+                    ],
+                },
+            ]
+            environment, calls_path, _, transaction_parent = (
+                transactional_release_environment(root, state)
+            )
+            preflight = run_release_preflight(
+                transaction_script,
+                environment,
+                transaction_parent,
+            )
+            self.assertEqual(2, preflight.returncode)
+            self.assertIn(
+                "detached GitHub release transaction residue detected: 1701, 1702",
+                preflight.stderr,
+            )
+            self.assertEqual([], list(transaction_parent.iterdir()))
+            self.assertEqual(
+                [],
+                release_transaction_mutations(release_transaction_calls(calls_path)),
+            )
+
+        with TemporaryDirectory() as directory:
+            root = Path(directory)
+            state = transactional_release_state(exists=True)
+            orphan = legacy_other_release()
+            target_names = (
+                "install.ps1",
+                "install.sh",
+                "justdocs-0.1.0-py3-none-any.whl",
+                "justdocs-0.1.0.tar.gz",
+                "SHA256SUMS.txt",
+            )
+            orphan["fullAssets"] = [
+                asset | {"name": target_name}
+                for asset, target_name in zip(
+                    orphan["fullAssets"],
+                    target_names,
+                    strict=True,
+                )
+            ]
+            orphan["assets"] = orphan["fullAssets"]
+            state["otherReleases"] = [orphan]
+            environment, calls_path, _, _ = transactional_release_environment(
+                root,
+                state,
+            )
+            blocked = run_release_recover_detached(transaction_script, environment)
+            self.assertEqual(2, blocked.returncode)
+            self.assertIn("transaction residue detected", blocked.stderr)
+            self.assertEqual(
+                [],
+                release_transaction_mutations(release_transaction_calls(calls_path)),
+            )
+
+    @unittest.skipIf(os.name == "nt", "POSIX release transaction path")
+    def test_detached_latest_recovery_converges_from_each_state(self) -> None:
+        transaction_script = Path(
+            "scripts/release/transactional-github-release.py"
+        ).resolve()
+        expected_names = {
+            "SHA256SUMS.txt",
+            "install.ps1",
+            "install.sh",
+            "justdocs-0.1.0-py3-none-any.whl",
+            "justdocs-0.1.0.tar.gz",
+        }
+        for progress in range(6):
+            with self.subTest(progress=progress), TemporaryDirectory() as directory:
+                root = Path(directory)
+                original = legacy_detached_release_state(progress=progress)
+                original_ids = {asset["id"] for asset in original["assets"].values()}
+                original_name = original["name"]
+                original_description = original["description"]
+                environment, calls_path, state_path, _ = (
+                    transactional_release_environment(root, original)
+                )
+                recovered = run_release_recover_detached(
+                    transaction_script,
+                    environment,
+                )
+                self.assertEqual(0, recovered.returncode, recovered.stderr)
+                state = json.loads(state_path.read_text(encoding="utf-8"))
+                self.assertFalse(state["isDraft"])
+                self.assertFalse(state["isLatest"])
+                self.assertTrue(state["isPrerelease"])
+                self.assertEqual("latest", state["releaseTag"])
+                self.assertEqual(original_name, state["name"])
+                self.assertEqual(original_description, state["description"])
+                self.assertEqual(expected_names, set(state["assets"]))
+                self.assertEqual(
+                    original_ids,
+                    {asset["id"] for asset in state["assets"].values()},
+                )
+                calls = release_transaction_calls(calls_path)
+                mutations = release_transaction_mutations(calls)
+                asset_patches = [
+                    call
+                    for call in mutations
+                    if call[:3] == ["api", "-X", "PATCH"]
+                    and any("/releases/assets/" in value for value in call)
+                ]
+                release_patches = [
+                    call
+                    for call in mutations
+                    if call[:2] == ["--disable", "--fail-with-body"]
+                    and "--request" in call
+                    and call[call.index("--request") + 1] == "PATCH"
+                    and call[-1].startswith("https://api.github.com/")
+                ]
+                self.assertEqual(5 - progress, len(asset_patches))
+                self.assertEqual(1, len(release_patches))
+                self.assertFalse(
+                    any(
+                        call[:3] == ["api", "-X", "PATCH"]
+                        and "--input" in call
+                        and call[call.index("--input") + 1] == "-"
+                        for call in calls
+                    )
+                )
+                mutation_count = len(mutations)
+                rerun = run_release_recover_detached(transaction_script, environment)
+                self.assertEqual(0, rerun.returncode, rerun.stderr)
+                self.assertEqual(
+                    mutation_count,
+                    len(
+                        release_transaction_mutations(
+                            release_transaction_calls(calls_path)
+                        )
+                    ),
+                )
+
+    @unittest.skipIf(os.name == "nt", "POSIX release transaction path")
+    def test_detached_latest_recovery_survives_every_crash_boundary(self) -> None:
+        transaction_script = Path(
+            "scripts/release/transactional-github-release.py"
+        ).resolve()
+        for rename_count in range(1, 6):
+            with (
+                self.subTest(boundary=f"rename-{rename_count}"),
+                TemporaryDirectory() as directory,
+            ):
+                root = Path(directory)
+                environment, _, state_path, _ = transactional_release_environment(
+                    root,
+                    legacy_detached_release_state(),
+                )
+                environment["GH_CRASH_AFTER_ASSET_RENAME_COUNT"] = str(rename_count)
+                crashed = run_release_recover_detached(transaction_script, environment)
+                self.assertLess(crashed.returncode, 0)
+                del environment["GH_CRASH_AFTER_ASSET_RENAME_COUNT"]
+                retry = run_release_recover_detached(transaction_script, environment)
+                self.assertEqual(0, retry.returncode, retry.stderr)
+                state = json.loads(state_path.read_text(encoding="utf-8"))
+                self.assertEqual("latest", state["releaseTag"])
+                self.assertFalse(state["isDraft"])
+
+        for failure_variable in (
+            "GH_CRASH_AFTER_PUBLISH_PATCH",
+            "GH_FAIL_AFTER_PUBLISH_PATCH",
+        ):
+            with (
+                self.subTest(boundary=failure_variable),
+                TemporaryDirectory() as directory,
+            ):
+                root = Path(directory)
+                environment, calls_path, state_path, _ = (
+                    transactional_release_environment(
+                        root,
+                        legacy_detached_release_state(progress=5),
+                    )
+                )
+                environment[failure_variable] = "1"
+                interrupted = run_release_recover_detached(
+                    transaction_script,
+                    environment,
+                )
+                if failure_variable.startswith("GH_CRASH"):
+                    self.assertLess(interrupted.returncode, 0)
+                    del environment[failure_variable]
+                    retry = run_release_recover_detached(
+                        transaction_script,
+                        environment,
+                    )
+                    self.assertEqual(0, retry.returncode, retry.stderr)
+                else:
+                    self.assertEqual(0, interrupted.returncode, interrupted.stderr)
+                state = json.loads(state_path.read_text(encoding="utf-8"))
+                self.assertEqual("latest", state["releaseTag"])
+                self.assertFalse(state["isDraft"])
+                self.assertEqual(
+                    1,
+                    len(
+                        [
+                            call
+                            for call in release_transaction_mutations(
+                                release_transaction_calls(calls_path)
+                            )
+                            if call[:2] == ["--disable", "--fail-with-body"]
+                            and call[-1].startswith("https://api.github.com/")
+                        ]
+                    ),
+                )
+
+        with TemporaryDirectory() as directory:
+            root = Path(directory)
+            environment, _, state_path, _ = transactional_release_environment(
+                root,
+                legacy_detached_release_state(),
+            )
+            environment["GH_FAIL_AFTER_ASSET_RENAME_COUNT"] = "1"
+            recovered = run_release_recover_detached(transaction_script, environment)
+            self.assertEqual(0, recovered.returncode, recovered.stderr)
+            state = json.loads(state_path.read_text(encoding="utf-8"))
+            self.assertEqual("latest", state["releaseTag"])
+            self.assertFalse(state["isDraft"])
+
+        for failure_variable, progress in (
+            ("GH_FAIL_BEFORE_ASSET_RENAME_COUNT", 0),
+            ("GH_FAIL_BEFORE_PUBLISH_PATCH", 5),
+        ):
+            with (
+                self.subTest(boundary=failure_variable),
+                TemporaryDirectory() as directory,
+            ):
+                root = Path(directory)
+                environment, _, state_path, _ = transactional_release_environment(
+                    root,
+                    legacy_detached_release_state(progress=progress),
+                )
+                environment[failure_variable] = "1"
+                failed = run_release_recover_detached(
+                    transaction_script,
+                    environment,
+                )
+                self.assertEqual(2, failed.returncode)
+                del environment[failure_variable]
+                retry = run_release_recover_detached(transaction_script, environment)
+                self.assertEqual(0, retry.returncode, retry.stderr)
+                state = json.loads(state_path.read_text(encoding="utf-8"))
+                self.assertEqual("latest", state["releaseTag"])
+                self.assertFalse(state["isDraft"])
+
+    @unittest.skipIf(os.name == "nt", "POSIX release transaction path")
+    def test_detached_latest_recovery_noops_for_bound_release_and_checks_residue(
+        self,
+    ) -> None:
+        transaction_script = Path(
+            "scripts/release/transactional-github-release.py"
+        ).resolve()
+        for state_name, state in (
+            ("arbitrary", transactional_release_state(exists=True)),
+            ("terminal", legacy_detached_release_state(terminal=True)),
+        ):
+            with self.subTest(state=state_name), TemporaryDirectory() as directory:
+                root = Path(directory)
+                environment, calls_path, _, _ = transactional_release_environment(
+                    root,
+                    state,
+                )
+                recovered = run_release_recover_detached(
+                    transaction_script,
+                    environment,
+                )
+                self.assertEqual(0, recovered.returncode, recovered.stderr)
+                self.assertEqual(
+                    [],
+                    release_transaction_mutations(
+                        release_transaction_calls(calls_path)
+                    ),
+                )
+
+        with TemporaryDirectory() as directory:
+            root = Path(directory)
+            state = transactional_release_state(exists=True)
+            marker = "justdocs release transaction justdocs-release-transaction-bound1"
+            state["otherReleases"] = [
+                {
+                    "id": 1701,
+                    "tag_name": "untagged-coexisting-release",
+                    "immutable": False,
+                    "draft": True,
+                    "prerelease": False,
+                    "name": marker,
+                    "body": marker,
+                    "assets": [],
+                }
+            ]
+            environment, calls_path, _, _ = transactional_release_environment(
+                root,
+                state,
+            )
+            blocked = run_release_recover_detached(transaction_script, environment)
+            self.assertEqual(2, blocked.returncode)
+            self.assertIn("transaction residue detected", blocked.stderr)
+            self.assertEqual(
+                [],
+                release_transaction_mutations(release_transaction_calls(calls_path)),
+            )
+
+    @unittest.skipIf(os.name == "nt", "POSIX release transaction path")
+    def test_detached_latest_recovery_rejects_invalid_profiles_without_mutation(
+        self,
+    ) -> None:
+        transaction_script = Path(
+            "scripts/release/transactional-github-release.py"
+        ).resolve()
+
+        def manifest_asset(state: dict[str, object]) -> dict[str, object]:
+            return next(
+                asset
+                for asset in state["assets"].values()
+                if b"install.ps1" in bytes.fromhex(asset["hex"])
+            )
+
+        scenarios: list[tuple[str, dict[str, object], dict[str, str]]] = []
+        wrong_name = legacy_detached_release_state()
+        wrong_name["name"] = "Latest Nightly Build (333333333333)"
+        scenarios.append(("wrong-name", wrong_name, {}))
+
+        wrong_body = legacy_detached_release_state()
+        wrong_body["description"] = "# justdocs latest\n\n- branch: `other`\n"
+        scenarios.append(("wrong-body", wrong_body, {}))
+
+        wrong_target = legacy_detached_release_state()
+        other_sha = TRANSACTION_CONCURRENT_SHA
+        wrong_target["name"] = f"Latest Nightly Build ({other_sha[:12]})"
+        wrong_target["description"] = (
+            "# justdocs latest\n\n"
+            "- branch: `main`\n"
+            f"- target commit: [`{other_sha}`]"
+            f"(https://github.com/FanaticPythoner/justdocs/commit/{other_sha})\n"
+        )
+        scenarios.append(("wrong-target", wrong_target, {}))
+
+        nonself_rollback = legacy_detached_release_state()
+        old_name, moved = next(iter(nonself_rollback["assets"].items()))
+        del nonself_rollback["assets"][old_name]
+        nonself_rollback["assets"][f"justdocs-rollback-{moved['id'] + 1}"] = moved
+        scenarios.append(("nonself-rollback", nonself_rollback, {}))
+
+        labeled = legacy_detached_release_state()
+        next(iter(labeled["assets"].values()))["label"] = "unexpected"
+        scenarios.append(("asset-label", labeled, {}))
+
+        digest_mismatch = legacy_detached_release_state()
+        next(iter(digest_mismatch["assets"].values()))["digest"] = "sha256:" + "f" * 64
+        scenarios.append(("asset-digest", digest_mismatch, {}))
+
+        byte_mismatch = legacy_detached_release_state()
+        next(iter(byte_mismatch["assets"].values()))["hex"] += "00"
+        scenarios.append(("asset-bytes", byte_mismatch, {}))
+
+        malformed_manifest = legacy_detached_release_state()
+        malformed = manifest_asset(malformed_manifest)
+        malformed_payload = b"invalid manifest\n"
+        malformed["hex"] = malformed_payload.hex()
+        malformed["size"] = len(malformed_payload)
+        malformed["digest"] = f"sha256:{hashlib.sha256(malformed_payload).hexdigest()}"
+        scenarios.append(("malformed-manifest", malformed_manifest, {}))
+
+        ambiguous_manifest = legacy_detached_release_state()
+        ambiguous_assets = list(ambiguous_manifest["assets"].values())[:2]
+        ambiguous_assets[1]["hex"] = ambiguous_assets[0]["hex"]
+        ambiguous_assets[1]["size"] = ambiguous_assets[0]["size"]
+        ambiguous_assets[1]["digest"] = ambiguous_assets[0]["digest"]
+        scenarios.append(("ambiguous-manifest", ambiguous_manifest, {}))
+
+        nonprefix = legacy_detached_release_state()
+        second_name = tuple(nonprefix["assets"])[1]
+        second = nonprefix["assets"].pop(second_name)
+        nonprefix["assets"]["install.sh"] = second
+        scenarios.append(("nonprefix-partial-rename", nonprefix, {}))
+
+        duplicate = legacy_detached_release_state()
+        duplicate["otherReleases"] = [legacy_other_release()]
+        scenarios.append(("duplicate-candidates", duplicate, {}))
+
+        concurrent = legacy_detached_release_state()
+        scenarios.append(
+            (
+                "concurrent-metadata",
+                concurrent,
+                {"GH_MUTATE_ON_RELEASE_ID_QUERY_COUNT": "2"},
+            )
+        )
+
+        wrong_author = legacy_detached_release_state()
+        wrong_author["authorLogin"] = "external-user"
+        scenarios.append(("release-author", wrong_author, {}))
+
+        wrong_uploader = legacy_detached_release_state()
+        next(iter(wrong_uploader["assets"].values()))["uploaderLogin"] = "external-user"
+        scenarios.append(("asset-uploader", wrong_uploader, {}))
+
+        for name, state, overrides in scenarios:
+            with self.subTest(name=name), TemporaryDirectory() as directory:
+                root = Path(directory)
+                environment, calls_path, _, _ = transactional_release_environment(
+                    root,
+                    state,
+                )
+                environment.update(overrides)
+                rejected = run_release_recover_detached(
+                    transaction_script,
+                    environment,
+                )
+                self.assertEqual(2, rejected.returncode, rejected.stderr)
+                self.assertEqual(
+                    [],
+                    release_transaction_mutations(
+                        release_transaction_calls(calls_path)
+                    ),
+                )
+
+    @unittest.skipIf(os.name == "nt", "POSIX release transaction path")
+    def test_detached_latest_recovery_validates_transport_and_scope_first(
+        self,
+    ) -> None:
+        transaction_script = Path(
+            "scripts/release/transactional-github-release.py"
+        ).resolve()
+        transport_scenarios = (
+            ("old", {"GH_CURL_VERSION_RESPONSE": "curl 7.75.0 fixture"}),
+            ("malformed", {"GH_CURL_VERSION_RESPONSE": "curl unknown"}),
+            (
+                "failed",
+                {
+                    "GH_CURL_VERSION_RESPONSE": "",
+                    "GH_CURL_VERSION_EXIT": "127",
+                },
+            ),
+        )
+        for name, overrides in transport_scenarios:
+            with self.subTest(name=name), TemporaryDirectory() as directory:
+                root = Path(directory)
+                environment, calls_path, _, _ = transactional_release_environment(
+                    root,
+                    legacy_detached_release_state(),
+                )
+                environment.update(overrides)
+                rejected = run_release_recover_detached(
+                    transaction_script,
+                    environment,
+                )
+                self.assertEqual(2, rejected.returncode)
+                calls = release_transaction_calls(calls_path)
+                self.assertEqual([["--disable", "--version"]], calls)
+                self.assertEqual([], release_transaction_mutations(calls))
+
+        for name, overrides in transport_scenarios:
+            with (
+                self.subTest(preflight=name),
+                TemporaryDirectory() as directory,
+            ):
+                root = Path(directory)
+                environment, calls_path, _, transaction_parent = (
+                    transactional_release_environment(
+                        root,
+                        transactional_release_state(exists=False),
+                    )
+                )
+                environment.update(overrides)
+                rejected = run_release_preflight(
+                    transaction_script,
+                    environment,
+                    transaction_parent,
+                )
+                self.assertEqual(2, rejected.returncode)
+                self.assertEqual([], list(transaction_parent.iterdir()))
+                self.assertEqual(
+                    [],
+                    release_transaction_mutations(
+                        release_transaction_calls(calls_path)
+                    ),
+                )
+
+        for tag, repository in (
+            ("v0.1.0", "FanaticPythoner/justdocs"),
+            ("latest", "ExternalOwner/justdocs"),
+        ):
+            with (
+                self.subTest(tag=tag, repository=repository),
+                TemporaryDirectory() as directory,
+            ):
+                root = Path(directory)
+                environment, calls_path, _, _ = transactional_release_environment(
+                    root,
+                    legacy_detached_release_state(),
+                )
+                environment["GITHUB_REPOSITORY"] = repository
+                rejected = subprocess.run(
+                    (
+                        sys.executable,
+                        str(transaction_script),
+                        "recover-detached",
+                        tag,
+                    ),
+                    check=False,
+                    env=environment,
+                    text=True,
+                    capture_output=True,
+                )
+                self.assertEqual(2, rejected.returncode)
+                self.assertEqual([], release_transaction_calls(calls_path))
+
+    @unittest.skipIf(os.name == "nt", "POSIX release transaction path")
+    def test_release_transaction_reserves_internal_asset_names(self) -> None:
+        transaction_script = Path(
+            "scripts/release/transactional-github-release.py"
+        ).resolve()
+        scenarios = (
+            (
+                "staged-rollback",
+                {"justdocs-rollback-901": b"reserved"},
+                transactional_release_state(exists=False),
+            ),
+            (
+                "staged-upload",
+                {f"justdocs-upload-{'a' * 32}": b"reserved"},
+                transactional_release_state(exists=False),
+            ),
+            (
+                "existing-rollback",
+                {"package.whl": b"wheel"},
+                transactional_release_state(
+                    exists=True,
+                    assets={"justdocs-rollback-901": b"reserved"},
+                ),
+            ),
+            (
+                "existing-upload",
+                {"package.whl": b"wheel"},
+                transactional_release_state(
+                    exists=True,
+                    assets={f"justdocs-upload-{'b' * 32}": b"reserved"},
+                ),
+            ),
+        )
+        for name, staged_assets, release_state in scenarios:
+            with self.subTest(name=name), TemporaryDirectory() as directory:
+                root = Path(directory)
+                stage_root, dist_dir, notes_file = stage_transaction_assets(
+                    root,
+                    staged_assets,
+                    "release notes\n",
+                )
+                environment, calls_path, _, transaction_parent = (
+                    transactional_release_environment(root, release_state)
+                )
+                preflight = run_release_preflight(
+                    transaction_script,
+                    environment,
+                    transaction_parent,
+                )
+                self.assertEqual(0, preflight.returncode, preflight.stderr)
+                transaction_root = Path(preflight.stdout.strip())
+                published = run_release_publish(
+                    transaction_script,
+                    environment,
+                    transaction_root,
+                    notes_file,
+                    dist_dir,
+                    release_name="Release",
+                )
+                self.assertEqual(2, published.returncode)
+                self.assertIn(
+                    "reserved release transaction asset name",
+                    published.stderr,
+                )
+                self.assertEqual(
+                    [],
+                    release_transaction_mutations(
+                        release_transaction_calls(calls_path)
+                    ),
+                )
+                journal = json.loads(
+                    (transaction_root / "transaction.json").read_text(encoding="utf-8")
+                )
+                self.assertEqual("preflight", journal["phase"])
+                cleanup_release_fixture(
+                    transaction_script,
+                    transaction_root,
+                    transaction_parent,
+                    environment,
+                    stage_root,
+                )
+
+    @unittest.skipIf(os.name == "nt", "POSIX release transaction path")
+    def test_release_preflight_detects_lost_journal_after_final_asset_rename(
+        self,
+    ) -> None:
+        transaction_script = Path(
+            "scripts/release/transactional-github-release.py"
+        ).resolve()
+        with TemporaryDirectory() as directory:
+            root = Path(directory)
+            stage_root, dist_dir, notes_file = stage_transaction_assets(
+                root,
+                {"package.whl": b"wheel"},
+                "new release notes\n",
+            )
+            environment, calls_path, state_path, transaction_parent = (
+                transactional_release_environment(
+                    root,
+                    transactional_release_state(exists=False),
+                )
+            )
+            preflight = run_release_preflight(
+                transaction_script,
+                environment,
+                transaction_parent,
+            )
+            self.assertEqual(0, preflight.returncode, preflight.stderr)
+            transaction_root = Path(preflight.stdout.strip())
+            environment["GH_CRASH_AFTER_ASSET_RENAME_COUNT"] = str(
+                len(tuple(dist_dir.iterdir()))
+            )
+            crashed = run_release_publish(
+                transaction_script,
+                environment,
+                transaction_root,
+                notes_file,
+                dist_dir,
+                release_name="New release",
+            )
+            self.assertEqual(-9, crashed.returncode)
+            environment.pop("GH_CRASH_AFTER_ASSET_RENAME_COUNT")
+            orphan = json.loads(state_path.read_text(encoding="utf-8"))
+            marker = f"justdocs release transaction {transaction_root.name}"
+            self.assertTrue(orphan["isDraft"])
+            self.assertEqual(marker, orphan["name"])
+            self.assertEqual(marker, orphan["description"])
+            self.assertEqual(
+                {path.name for path in dist_dir.iterdir()},
+                set(orphan["assets"]),
+            )
+            self.assertFalse(
+                any(
+                    name.startswith(("justdocs-rollback-", "justdocs-upload-"))
+                    for name in orphan["assets"]
+                )
+            )
+            second_parent = root / "second-runner-temp"
+            second_parent.mkdir()
+            calls_before_retry = len(release_transaction_calls(calls_path))
+            retry = run_release_preflight(
+                transaction_script,
+                environment,
+                second_parent,
+            )
+            self.assertEqual(2, retry.returncode)
+            self.assertIn(
+                "detached GitHub release transaction residue detected",
+                retry.stderr,
+            )
+            retry_calls = release_transaction_calls(calls_path)[calls_before_retry:]
+            self.assertEqual([], release_transaction_mutations(retry_calls))
+            cleanup_release_fixture(
+                transaction_script,
+                transaction_root,
+                transaction_parent,
+                environment,
+                stage_root,
+            )
+
+    @unittest.skipIf(os.name == "nt", "POSIX release transaction path")
+    def test_release_transaction_preserves_externally_published_created_draft(
+        self,
+    ) -> None:
+        transaction_script = Path(
+            "scripts/release/transactional-github-release.py"
+        ).resolve()
+        with TemporaryDirectory() as directory:
+            root = Path(directory)
+            stage_root, dist_dir, notes_file = stage_transaction_assets(
+                root,
+                {"package.whl": b"wheel"},
+                "new release notes\n",
+            )
+            environment, calls_path, state_path, transaction_parent = (
+                transactional_release_environment(
+                    root,
+                    transactional_release_state(exists=False),
+                )
+            )
+            preflight = run_release_preflight(
+                transaction_script,
+                environment,
+                transaction_parent,
+            )
+            self.assertEqual(0, preflight.returncode, preflight.stderr)
+            transaction_root = Path(preflight.stdout.strip())
+            environment["GH_CRASH_AFTER_ASSET_RENAME_COUNT"] = "1"
+            crashed = run_release_publish(
+                transaction_script,
+                environment,
+                transaction_root,
+                notes_file,
+                dist_dir,
+                release_name="New release",
+            )
+            self.assertEqual(-9, crashed.returncode)
+            environment.pop("GH_CRASH_AFTER_ASSET_RENAME_COUNT")
+            external = json.loads(state_path.read_text(encoding="utf-8"))
+            external["isDraft"] = False
+            external["isLatest"] = True
+            external["releaseTag"] = "latest"
+            external["name"] = "External published release"
+            external["description"] = "external notes\n"
+            state_path.write_text(
+                json.dumps(external, sort_keys=True, separators=(",", ":")) + "\n",
+                encoding="utf-8",
+            )
+            calls_before_cleanup = len(release_transaction_calls(calls_path))
+            cleanup = subprocess.run(
+                (
+                    sys.executable,
+                    str(transaction_script),
+                    "cleanup",
+                    str(transaction_root),
+                    str(transaction_parent),
+                ),
+                check=False,
+                env=environment,
+                text=True,
+                capture_output=True,
+            )
+            self.assertEqual(2, cleanup.returncode)
+            self.assertIn("created release identity is indeterminate", cleanup.stderr)
+            self.assertTrue(transaction_root.exists())
+            cleanup_calls = release_transaction_calls(calls_path)[calls_before_cleanup:]
+            self.assertEqual(
+                [],
+                [call for call in cleanup_calls if call[:3] == ["api", "-X", "DELETE"]],
+            )
+            preserved = json.loads(state_path.read_text(encoding="utf-8"))
+            self.assertFalse(preserved["isDraft"])
+            self.assertEqual("External published release", preserved["name"])
+            subprocess.run(
+                (
+                    sys.executable,
+                    "scripts/release/stage-release-inputs.py",
+                    "cleanup",
+                    str(stage_root),
+                    str(stage_root.parent),
+                ),
+                check=True,
+                text=True,
+                capture_output=True,
+            )
+
+    @unittest.skipIf(os.name == "nt", "POSIX release transaction path")
+    def test_release_transaction_preserves_externally_published_existing_draft(
+        self,
+    ) -> None:
+        transaction_script = Path(
+            "scripts/release/transactional-github-release.py"
+        ).resolve()
+        with TemporaryDirectory() as directory:
+            root = Path(directory)
+            original = transactional_release_state(
+                exists=True,
+                assets={"package.whl": b"old wheel"},
+            )
+            stage_root, dist_dir, notes_file = stage_transaction_assets(
+                root,
+                {"package.whl": b"new wheel"},
+                "replacement notes\n",
+            )
+            environment, calls_path, state_path, transaction_parent = (
+                transactional_release_environment(root, original)
+            )
+            preflight = run_release_preflight(
+                transaction_script,
+                environment,
+                transaction_parent,
+            )
+            self.assertEqual(0, preflight.returncode, preflight.stderr)
+            transaction_root = Path(preflight.stdout.strip())
+            environment["GH_CRASH_PARTIAL_UPLOAD"] = "1"
+            crashed = run_release_publish(
+                transaction_script,
+                environment,
+                transaction_root,
+                notes_file,
+                dist_dir,
+                release_name="Replacement release",
+            )
+            self.assertEqual(-9, crashed.returncode)
+            environment.pop("GH_CRASH_PARTIAL_UPLOAD")
+            external = json.loads(state_path.read_text(encoding="utf-8"))
+            external["isDraft"] = False
+            external["isLatest"] = True
+            external["releaseTag"] = "latest"
+            external["name"] = "Replacement release"
+            external["description"] = "replacement notes\n"
+            state_path.write_text(
+                json.dumps(external, sort_keys=True, separators=(",", ":")) + "\n",
+                encoding="utf-8",
+            )
+            calls_before_cleanup = len(release_transaction_calls(calls_path))
+            cleanup = subprocess.run(
+                (
+                    sys.executable,
+                    str(transaction_script),
+                    "cleanup",
+                    str(transaction_root),
+                    str(transaction_parent),
+                ),
+                check=False,
+                env=environment,
+                text=True,
+                capture_output=True,
+            )
+            self.assertEqual(2, cleanup.returncode)
+            self.assertIn("release identity cannot be rolled back", cleanup.stderr)
+            self.assertTrue(transaction_root.exists())
+            cleanup_calls = release_transaction_calls(calls_path)[calls_before_cleanup:]
+            self.assertEqual([], release_transaction_mutations(cleanup_calls))
+            preserved = json.loads(state_path.read_text(encoding="utf-8"))
+            self.assertFalse(preserved["isDraft"])
+            self.assertEqual("Replacement release", preserved["name"])
+            subprocess.run(
+                (
+                    sys.executable,
+                    "scripts/release/stage-release-inputs.py",
+                    "cleanup",
+                    str(stage_root),
+                    str(stage_root.parent),
+                ),
+                check=True,
+                text=True,
+                capture_output=True,
+            )
+
+    @unittest.skipIf(os.name == "nt", "POSIX release transaction path")
     def test_release_transaction_absent_creation_failures_recover_by_identity(
         self,
     ) -> None:
@@ -2471,11 +4219,11 @@ class ThemePackageTest(unittest.TestCase):
             "scripts/release/transactional-github-release.py"
         ).resolve()
         scenarios = (
-            ("create", {"GH_FAIL_CREATE": "1"}, True),
+            ("create", {"GH_FAIL_CREATE": "1"}, "indeterminate-empty"),
             (
                 "query",
                 {"GH_FAIL_FIRST_RELEASE_QUERY_AFTER_CREATE": "1"},
-                True,
+                "recovered",
             ),
             (
                 "external",
@@ -2483,10 +4231,10 @@ class ThemePackageTest(unittest.TestCase):
                     "GH_FAIL_FIRST_RELEASE_QUERY_AFTER_CREATE": "1",
                     "GH_REPLACE_MARKER_WITH_EXTERNAL_DRAFT": "1",
                 },
-                False,
+                "indeterminate-external",
             ),
         )
-        for name, fault_environment, recoverable in scenarios:
+        for name, fault_environment, outcome in scenarios:
             with self.subTest(name=name), TemporaryDirectory() as directory:
                 root = Path(directory)
                 stage_root, dist_dir, notes_file = stage_transaction_assets(
@@ -2538,11 +4286,11 @@ class ThemePackageTest(unittest.TestCase):
                     and any("/releases/" in value for value in call)
                     and not any("/assets/" in value for value in call)
                 ]
-                if recoverable:
+                if outcome == "recovered":
                     self.assertIn("rollback completed", published.stderr)
                     self.assertFalse(state["exists"])
                     self.assertEqual("rolled_back", journal["phase"])
-                    self.assertEqual(1 if name == "query" else 0, len(delete_calls))
+                    self.assertEqual(1, len(delete_calls))
                     if delete_calls:
                         self.assertTrue(
                             any(
@@ -2563,10 +4311,14 @@ class ThemePackageTest(unittest.TestCase):
                         "created release identity is indeterminate",
                         published.stderr,
                     )
-                    self.assertTrue(state["exists"])
-                    self.assertTrue(state["isDraft"])
-                    self.assertEqual("External draft", state["name"])
-                    self.assertEqual("external notes\n", state["description"])
+                    self.assertEqual(
+                        outcome == "indeterminate-external",
+                        state["exists"],
+                    )
+                    if outcome == "indeterminate-external":
+                        self.assertTrue(state["isDraft"])
+                        self.assertEqual("External draft", state["name"])
+                        self.assertEqual("external notes\n", state["description"])
                     self.assertEqual("mutating", journal["phase"])
                     self.assertEqual([], delete_calls)
                     cleanup = subprocess.run(
@@ -2826,11 +4578,35 @@ class ThemePackageTest(unittest.TestCase):
                     [calls[index][-1] for index in delete_indices],
                 )
                 self.assertEqual(
-                    ["-"] * len(upload_indices),
+                    ["@-"] * len(upload_indices),
                     [
-                        calls[index][calls[index].index("--input") + 1]
+                        calls[index][calls[index].index("--data-binary") + 1]
                         for index in upload_indices
                     ],
+                )
+                self.assertEqual(
+                    [str(path.stat().st_size) for path in sorted(dist_dir.iterdir())],
+                    [
+                        next(
+                            value.removeprefix("Content-Length: ")
+                            for value in calls[index]
+                            if value.startswith("Content-Length: ")
+                        )
+                        for index in upload_indices
+                    ],
+                )
+                self.assertTrue(
+                    all(
+                        len(
+                            [
+                                value
+                                for value in calls[index]
+                                if value.startswith("Content-Length: ")
+                            ]
+                        )
+                        == 1
+                        for index in upload_indices
+                    )
                 )
                 patch_payloads = [
                     json.loads(
@@ -2842,11 +4618,18 @@ class ThemePackageTest(unittest.TestCase):
                 ]
                 self.assertEqual(
                     [
-                        ("Original release", True, False, "false"),
-                        ("Replacement release", False, True, "false"),
+                        (
+                            "latest",
+                            f"justdocs release transaction {transaction_root.name}",
+                            True,
+                            False,
+                            "false",
+                        ),
+                        ("latest", "Replacement release", False, True, "false"),
                     ],
                     [
                         (
+                            payload["tag_name"],
                             payload["name"],
                             payload["draft"],
                             payload["prerelease"],
@@ -3624,21 +5407,29 @@ class ThemePackageTest(unittest.TestCase):
             )
             self.assertEqual(0, preflight.returncode, preflight.stderr)
             transaction_root = Path(preflight.stdout.strip())
+            cleanup_environment = environment | {
+                "GH_TOKEN": "fixture-token",
+                "RUNNER_TEMP": str(runner_temp),
+                "STAGE_ROOT": str(stage_root),
+                "TRANSACTION_ROOT": str(transaction_root),
+            }
             cleaned = subprocess.run(
                 ("bash", "-c", cleanup_script),
                 check=False,
-                env=environment
-                | {
-                    "GH_TOKEN": "fixture-token",
-                    "RUNNER_TEMP": str(runner_temp),
-                    "STAGE_ROOT": str(stage_root),
-                    "TRANSACTION_ROOT": str(transaction_root),
-                },
+                env=cleanup_environment,
                 text=True,
                 capture_output=True,
             )
             self.assertEqual(0, cleaned.returncode, cleaned.stderr)
             self.assertFalse(stage_root.exists())
+            cleaned_again = subprocess.run(
+                ("bash", "-c", cleanup_script),
+                check=False,
+                env=cleanup_environment,
+                text=True,
+                capture_output=True,
+            )
+            self.assertEqual(0, cleaned_again.returncode, cleaned_again.stderr)
             self.assertFalse(transaction_root.exists())
             self.assertEqual([], list(runner_temp.iterdir()))
 
@@ -3818,14 +5609,23 @@ class ThemePackageTest(unittest.TestCase):
     @unittest.skipIf(os.name == "nt", "POSIX release snapshot path")
     def test_secure_posix_paths_expand_only_trusted_root_aliases(self) -> None:
         helper_path = Path("scripts/release/secure_posix_paths.py").resolve()
+        module_name = "secure_posix_paths_test"
         specification = importlib.util.spec_from_file_location(
-            "secure_posix_paths_test",
+            module_name,
             helper_path,
         )
         if specification is None or specification.loader is None:
             self.fail("secure POSIX path helper import failed")
         secure_posix_paths = importlib.util.module_from_spec(specification)
-        specification.loader.exec_module(secure_posix_paths)
+        previous_module = sys.modules.get(module_name)
+        sys.modules[module_name] = secure_posix_paths
+        try:
+            specification.loader.exec_module(secure_posix_paths)
+        finally:
+            if previous_module is None:
+                sys.modules.pop(module_name, None)
+            else:
+                sys.modules[module_name] = previous_module
         system_alias = next(
             (
                 candidate
@@ -4218,7 +6018,7 @@ class ThemePackageTest(unittest.TestCase):
                 patch.dict(os.environ, {"GITHUB_WORKSPACE": str(workspace)}),
                 patch.object(
                     module,
-                    "_remove_tree",
+                    "_remove_bound_tree",
                     side_effect=OSError("cleanup denied"),
                 ),
                 self.assertRaises(module.SnapshotError) as raised,
@@ -4245,13 +6045,15 @@ class ThemePackageTest(unittest.TestCase):
             stage_root = runner_temp / "justdocs-release-setup"
             source_dir.mkdir(parents=True)
             runner_temp.mkdir()
+            canonical_runner_temp = module._canonical_directory(runner_temp)
+            canonical_stage_root = canonical_runner_temp / stage_root.name
             payload = b"wheel"
             digest = hashlib.sha256(payload).hexdigest()
             (source_dir / "package.whl").write_bytes(payload)
             (source_dir / "SHA256SUMS.txt").write_text(
                 f"{digest}  package.whl\n", encoding="utf-8"
             )
-            original_mkdir = Path.mkdir
+            original_mkdir_at = module._mkdir_at
 
             with (
                 patch.dict(os.environ, {"GITHUB_WORKSPACE": str(workspace)}),
@@ -4269,16 +6071,23 @@ class ThemePackageTest(unittest.TestCase):
                 module._stage(str(source_dir), "", str(runner_temp))
             self.assertEqual([], list(runner_temp.iterdir()))
 
-            def create_stage_root(*_args: object, **_kwargs: object) -> str:
+            def create_stage_root(*_args: object, **kwargs: object) -> str:
+                self.assertEqual(canonical_runner_temp, kwargs["dir"])
                 os.mkdir(stage_root, 0o700)
                 return str(stage_root)
 
             def reject_assets_mkdir(
-                path: Path, *args: object, **kwargs: object
+                directory_descriptor: int,
+                name: str,
+                mode: int,
             ) -> None:
-                if path == stage_root / "assets":
+                self.assertEqual(
+                    canonical_stage_root.stat().st_ino,
+                    os.fstat(directory_descriptor).st_ino,
+                )
+                if name == module.ASSETS_NAME:
                     raise OSError("assets mkdir denied")
-                original_mkdir(path, *args, **kwargs)
+                original_mkdir_at(directory_descriptor, name, mode)
 
             with (
                 patch.dict(os.environ, {"GITHUB_WORKSPACE": str(workspace)}),
@@ -4287,11 +6096,151 @@ class ThemePackageTest(unittest.TestCase):
                     "mkdtemp",
                     side_effect=create_stage_root,
                 ),
-                patch.object(Path, "mkdir", new=reject_assets_mkdir),
+                patch.object(module, "_mkdir_at", new=reject_assets_mkdir),
                 self.assertRaisesRegex(OSError, "assets mkdir denied"),
             ):
                 module._stage(str(source_dir), "", str(runner_temp))
             self.assertFalse(stage_root.exists())
+            self.assertFalse(canonical_stage_root.exists())
+
+            outside = root / "outside"
+            escaped_root = outside / "justdocs-release-escape"
+            outside.mkdir()
+
+            def create_escaped_root(*_args: object, **kwargs: object) -> str:
+                self.assertEqual(canonical_runner_temp, kwargs["dir"])
+                escaped_root.mkdir()
+                return str(escaped_root)
+
+            with (
+                patch.dict(os.environ, {"GITHUB_WORKSPACE": str(workspace)}),
+                patch.object(
+                    module.tempfile,
+                    "mkdtemp",
+                    side_effect=create_escaped_root,
+                ),
+                self.assertRaisesRegex(
+                    module.SnapshotError,
+                    "invalid release snapshot creation boundary",
+                ),
+            ):
+                module._stage(str(source_dir), "", str(runner_temp))
+            self.assertTrue(escaped_root.is_dir())
+            escaped_root.rmdir()
+
+            for replacement_kind in ("symlink", "directory"):
+                with self.subTest(replacement_kind=replacement_kind):
+                    displaced_root = runner_temp / f"displaced-{replacement_kind}"
+
+                    def substitute_before_assets(
+                        directory_descriptor: int,
+                        name: str,
+                        mode: int,
+                    ) -> None:
+                        self.assertEqual(module.ASSETS_NAME, name)
+                        self.assertEqual(
+                            canonical_stage_root.stat().st_ino,
+                            os.fstat(directory_descriptor).st_ino,
+                        )
+                        stage_root.rename(displaced_root)
+                        if replacement_kind == "symlink":
+                            stage_root.symlink_to(outside, target_is_directory=True)
+                        else:
+                            stage_root.mkdir()
+                        original_mkdir_at(directory_descriptor, name, mode)
+
+                    with (
+                        patch.dict(
+                            os.environ,
+                            {"GITHUB_WORKSPACE": str(workspace)},
+                        ),
+                        patch.object(
+                            module.tempfile,
+                            "mkdtemp",
+                            side_effect=create_stage_root,
+                        ),
+                        patch.object(
+                            module,
+                            "_mkdir_at",
+                            new=substitute_before_assets,
+                        ),
+                        self.assertRaisesRegex(
+                            module.SnapshotError,
+                            "root changed during staging",
+                        ),
+                    ):
+                        module._stage(str(source_dir), "", str(runner_temp))
+                    self.assertFalse((outside / module.ASSETS_NAME).exists())
+                    self.assertEqual([], list(displaced_root.iterdir()))
+                    if replacement_kind == "symlink":
+                        self.assertTrue(stage_root.is_symlink())
+                        stage_root.unlink()
+                    else:
+                        self.assertTrue(stage_root.is_dir())
+                        self.assertEqual([], list(stage_root.iterdir()))
+                        stage_root.rmdir()
+                    displaced_root.rmdir()
+
+    @unittest.skipIf(os.name == "nt", "POSIX release snapshot path")
+    def test_release_snapshot_cleanup_rejects_nested_substitution(self) -> None:
+        snapshot_script = Path("scripts/release/stage-release-inputs.py").resolve()
+        specification = importlib.util.spec_from_file_location(
+            "stage_release_nested_cleanup_test",
+            snapshot_script,
+        )
+        self.assertIsNotNone(specification)
+        self.assertIsNotNone(specification.loader)
+        module = importlib.util.module_from_spec(specification)
+        specification.loader.exec_module(module)
+        with TemporaryDirectory() as directory:
+            root = Path(directory)
+            snapshot_root = root / "justdocs-release-nested"
+            child = snapshot_root / "child"
+            displaced_child = snapshot_root / "displaced-child"
+            child.mkdir(parents=True)
+            (child / "payload").write_bytes(b"payload")
+            original_verify = module._verify_directory_entry
+            substituted = False
+
+            def substitute_before_identity_check(
+                parent_descriptor: int,
+                name: str,
+                descriptor: int,
+                error_message: str,
+            ) -> None:
+                nonlocal substituted
+                if name == child.name and not substituted:
+                    substituted = True
+                    child.rename(displaced_child)
+                    child.mkdir()
+                original_verify(
+                    parent_descriptor,
+                    name,
+                    descriptor,
+                    error_message,
+                )
+
+            with module._open_absolute_directory(snapshot_root) as root_descriptor:
+                with (
+                    patch.object(
+                        module,
+                        "_verify_directory_entry",
+                        new=substitute_before_identity_check,
+                    ),
+                    self.assertRaisesRegex(
+                        module.SnapshotError,
+                        "directory changed during cleanup",
+                    ),
+                ):
+                    module._remove_directory_contents(root_descriptor)
+            self.assertTrue(substituted)
+            self.assertTrue(child.is_dir())
+            self.assertEqual([], list(child.iterdir()))
+            self.assertTrue(displaced_child.is_dir())
+            self.assertEqual([], list(displaced_child.iterdir()))
+            child.rmdir()
+            displaced_child.rmdir()
+            snapshot_root.rmdir()
 
     def test_bootstrap_installers_expose_global_install_contract(self) -> None:
         shell = Path("install.sh").read_text(encoding="utf-8")
