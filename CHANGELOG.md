@@ -5,6 +5,97 @@ and the exact commit boundary included by each immutable version tag.
 
 ## Unreleased
 
+## v1.0.0 - 2026-07-12
+
+- release tag: `v1.0.0`
+- previous release: `v0.1.0`
+
+### Included commits
+
+- [`4452ad9`](https://github.com/FanaticPythoner/justdocs/commit/4452ad948dab78c8dc639acfbaf839f96ab6604e) fix: harden PR artifact cleanup and release preparation
+  > Extend PR distribution handling with closed-PR cleanup, run-bound comment
+  > identity, stale-run artifact deletion, and repository-bound pull-request
+  > validation. Correct initial release bumping, remove local release-note output,
+  > and strengthen concurrent GitHub release reads and recovery.
+  > 
+  > PR distribution lifecycle:
+  > - Add a pinned `pull_request_target` workflow for closed PR cleanup.
+  > - Restrict lifecycle permissions to actions deletion, repository reads, and PR comment writes.
+  > - Serialize cleanup per pull request without cancellation.
+  > - Validate pull-request number, closed state, head SHA, and base repository identity.
+  > - Delete only `justdocs-python-dist` artifacts bound to the managed workflow run.
+  > - Preserve unrelated artifacts during cleanup.
+  > - Replace the managed bot comment with a terminal unavailable message after closure.
+  > - Reject multiple managed comments and incomplete comment identities.
+  > - Encode workflow run ID, attempt, and head SHA in the managed comment marker.
+  > - Remove stale artifacts when a workflow run targets an outdated PR head.
+  > - Remove failed-run artifacts before synchronizing unavailable comments.
+  > - Reconcile older run identities while preventing older runs from replacing newer comments.
+  > - Extend workflow contract tests for pinned actions, permissions, checkout safety, and cleanup arguments.
+  > 
+  > Release preparation:
+  > - Apply the requested SemVer bump when no stable tag exists.
+  > - Preserve latest-tag and project-version equality checks for established releases.
+  > - Stop writing local release-note artifacts during release preparation.
+  > - Support `--` argument forwarding for Just recipe dispatch.
+  > - Update README and bundled reference documentation with initial-bump and runner-generated release behavior.
+  > - Document closed-PR artifact deletion and terminal comment synchronization.
+  > 
+  > GitHub release transactions:
+  > - Compare the second release metadata snapshot against all fields except `is_latest`.
+  > - Preserve the second metadata snapshot when only latest-release binding changes during asset retrieval.
+  > - Continue rejecting disappearance or concurrent mutation of every other release field.
+  > - Return verified post-query metadata with the independently queried asset inventory.
+  > - Treat committed transactions as idempotent only when published state still matches the journal.
+  > - Reject committed transaction recovery when published release state diverges.
+  > 
+  > Tests:
+  > - Verify initial major release creation updates `pyproject.toml`, changelog headings, commit subject, and annotated tag.
+  > - Verify initial and subsequent release preparation writes no `artifacts` directory.
+  > - Verify forwarded patch-bump arguments create the next stable tag.
+  > - Verify stale PR workflow runs delete their bound artifact and preserve newer comment ownership.
+  > - Verify closed PR cleanup deletes the bound artifact, preserves unrelated artifacts, and patches one terminal comment.
+  > - Verify concurrent `is_latest` mutation during release querying remains accepted while other mutations remain rejected.
+  > - Extend package workflow assertions to include the lifecycle workflow and its pinned action set.
+  > 
+  > Checks:
+  > - `git diff --cached --check` passes with no output.
+  > - `PYTHONDONTWRITEBYTECODE=1 PYTHONHASHSEED=0 PYTHONPATH=. python3 -m unittest tests.test_package.ThemePackageTest.test_create_next_release_applies_initial_major_bump_without_artifacts tests.test_package.ThemePackageTest.test_pr_distribution_comment_binds_event_artifact_and_bot_comment tests.test_package.ThemePackageTest.test_pr_distribution_close_removes_artifact_and_terminates_comment tests.test_package.ThemePackageTest.test_release_transaction_rejects_release_race_tag_cas_and_nonmonotonic` passes: 4 tests in 2.317 seconds.
+  > 
+  > Measurements:
+  > - Staged scope: 8 files, 420 insertions, 48 deletions.
+- [`4184429`](https://github.com/FanaticPythoner/justdocs/commit/41844296d7fbd6aadce038a6226ed1c3838e43e1) fix: harden workflow concurrency and release tag isolation
+  > Scope CI cancellation to each workflow and pull request, cancel superseded
+  > latest publication runs, and add dependency review for pull requests. Refresh
+  > pinned security actions, shorten distribution retention, and fetch only
+  > version-prefixed release tags so a moving `latest` alias cannot block
+  > next-release preparation.
+  > 
+  > Workflow coordination:
+  > - group CI runs by workflow and pull-request number or full ref
+  > - cancel an in-progress `latest-main` run when a newer run enters the group
+  > - retain `justdocs-python-dist` for 30 days instead of 90
+  > - synchronize the README artifact-retention contract
+  > 
+  > Security and provenance:
+  > - add a pull-request-only dependency-review job on Ubuntu 24.04
+  > - check out review inputs with the pinned checkout v7 action
+  > - pin dependency review to an immutable action commit
+  > - refresh CodeQL initialization and analysis pins within v4
+  > - refresh the build-provenance attestation pin within v4
+  > 
+  > Release preparation:
+  > - replace broad `--tags` fetching with `--no-tags` and explicit refspecs
+  > - force-refresh every remote branch tracking ref while pruning stale branches
+  > - fetch only `refs/tags/v*` into matching local version-tag refs
+  > - leave moving nonversion tags such as `latest` outside release preparation
+  > 
+  > Tests:
+  > - extend the security action allowlist for dependency review and refreshed pins
+  > - require 30-day CI artifact retention and cancellable latest publication
+  > - create and advance a remote `latest` tag before next-release preparation
+  > - require `latest` to remain intact while the next `v*` release tag is created
+
 ## v0.1.0 - 2026-07-12
 
 - release tag: `v0.1.0`
