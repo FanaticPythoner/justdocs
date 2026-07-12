@@ -341,6 +341,7 @@ root, and uninstall refuses to remove an unowned command.
 | `.github/workflows/release.yml` | Tag release pipeline with tests, reproducible distributions, trusted PyPI publishing, provenance, GitHub release assets, and public publication checks. |
 | `.github/workflows/latest.yml` | Moving `latest` prerelease assets for `main`. |
 | `.github/workflows/pr-python-dist-comment.yml` | Publish one trusted PR comment linking the CI-built wheel, source archive, installers, and checksum manifest. |
+| `.github/workflows/pr-python-dist-lifecycle.yml` | Remove the bound artifact and terminate its managed comment when a pull request closes. |
 | `install.sh` and `install.ps1` | Latest GitHub release bootstrap assets. |
 | `pypa/gh-action-pypi-publish` | PyPI upload action using trusted publishing or `PYPI_API_TOKEN`. |
 | PyPI trusted publisher | Default tokenless publication identity: repository `FanaticPythoner/justdocs`, workflow `release.yml`, environment `release`. |
@@ -365,9 +366,11 @@ just dist
 just next-release --bump patch --push
 ```
 
-`next-release` requires a clean default branch equal to `origin`, updates `pyproject.toml` and
+`next-release` requires a clean default branch equal to `origin`, applies the requested bump to
+the declared package version even before the first stable tag, updates `pyproject.toml` and
 `CHANGELOG.md`, creates `release: vX.Y.Z`, creates an annotated `vX.Y.Z` tag, and atomically
-pushes branch plus tag only with `--push`. The tag starts the stable workflow. Registry failure
+pushes branch plus tag only with `--push`. It writes no local release artifacts. The tag starts
+the stable workflow, where release notes and distributions are generated. Registry failure
 blocks GitHub Release creation. Successful publication requires exact PyPI wheel/sdist digests,
 exact GitHub asset digests, exact release notes, the immutable tag target, provenance attestation,
 and stable latest-release binding.
@@ -376,6 +379,9 @@ Pull-request CI publishes `justdocs-python-dist` for 90 days after all matrix jo
 round-trip checks pass. A trusted `workflow_run` job maintains one PR comment with the artifact
 digest, expiry, run identity, and isolated-install warning without executing pull-request code
 under write permissions.
+Closing the pull request validates its current head and base repository, deletes only artifacts
+bound to the managed workflow run, and changes the bot-owned comment to a terminal unavailable
+state.
 
 ## Smart Links
 

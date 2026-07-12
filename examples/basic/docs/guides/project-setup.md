@@ -171,6 +171,7 @@ the corresponding `JUSTDOCS_*` environment values.
 | `.github/workflows/release.yml` | Tag release pipeline with reproducible builds, trusted PyPI publication, provenance, GitHub release assets, and public checks. |
 | `.github/workflows/latest.yml` | Moving `latest` prerelease assets for `main`. |
 | `.github/workflows/pr-python-dist-comment.yml` | Trusted PR comment for the CI-built wheel, source archive, installers, and checksum manifest. |
+| `.github/workflows/pr-python-dist-lifecycle.yml` | Closed-PR artifact removal and terminal managed-comment synchronization. |
 | `install.sh` and `install.ps1` | Latest GitHub release bootstrap assets. |
 | `pypa/gh-action-pypi-publish` | PyPI upload action using trusted publishing or `PYPI_API_TOKEN`. |
 | PyPI trusted publisher | Default tokenless identity bound to `release.yml` and the `release` environment. |
@@ -189,3 +190,7 @@ PyPI trusted publishing binds owner `FanaticPythoner`, repository `justdocs`, wo
 `release.yml`, environment `release`, and project `justdocs`. Missing or rejected registry
 authentication fails publication before GitHub Release creation. Public checks compare PyPI and
 GitHub asset digests with the reproducible local wheel and source archive.
+
+`next-release` applies the selected SemVer bump to the package version for every release,
+including the first stable tag. Release preparation writes no local artifacts. Workflow runners
+generate release notes and distributions from the pushed immutable tag.

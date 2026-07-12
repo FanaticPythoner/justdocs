@@ -278,6 +278,12 @@ def write_transactional_gh_fixture(path: Path) -> None:
                     state["name"] = "Concurrent release"
                     save_state()
                 if (
+                    os.environ.get("GH_TOGGLE_LATEST_ON_SECOND_QUERY") == "1"
+                    and state["releaseMetadataQueryCount"] == 2
+                ):
+                    state["isLatest"] = not state["isLatest"]
+                    save_state()
+                if (
                     state.get("createCompleted")
                     and os.environ.get("GH_FAIL_FIRST_RELEASE_QUERY_AFTER_CREATE") == "1"
                     and not state.get("releaseQueryFailed")
@@ -1723,6 +1729,9 @@ class ThemePackageTest(unittest.TestCase):
         pr_distribution = Path(
             ".github/workflows/pr-python-dist-comment.yml"
         ).read_text(encoding="utf-8")
+        pr_distribution_lifecycle = Path(
+            ".github/workflows/pr-python-dist-lifecycle.yml"
+        ).read_text(encoding="utf-8")
         ci = Path(".github/workflows/ci.yml").read_text(encoding="utf-8")
         build_action = Path(".github/actions/build-dist/action.yml").read_text(
             encoding="utf-8"
@@ -1780,13 +1789,22 @@ class ThemePackageTest(unittest.TestCase):
             "github/codeql-action/analyze@1ad29ea4a422cce9a242a9fae469541dcd08addc"
         )
         workflows = "\n".join(
-            (ci, latest, release, reusable, security, pr_distribution)
+            (
+                ci,
+                latest,
+                release,
+                reusable,
+                security,
+                pr_distribution,
+                pr_distribution_lifecycle,
+            )
         )
         action_sources = {
             "ci": ci,
             "latest": latest,
             "release": release,
             "pr-distribution": pr_distribution,
+            "pr-distribution-lifecycle": pr_distribution_lifecycle,
             "reusable": reusable,
             "security": security,
             "build-action": build_action,
@@ -1865,6 +1883,10 @@ class ThemePackageTest(unittest.TestCase):
                     "./.github/workflows/reusable-build-python-package.yml",
                 },
                 "pr-distribution": {
+                    checkout_action,
+                    setup_python_action,
+                },
+                "pr-distribution-lifecycle": {
                     checkout_action,
                     setup_python_action,
                 },
@@ -2062,6 +2084,10 @@ class ThemePackageTest(unittest.TestCase):
         self.assertIn("pull-requests: write", pr_distribution)
         self.assertIn("persist-credentials: false", pr_distribution)
         self.assertIn("sync-pr-python-dist-comment.py", pr_distribution)
+        self.assertIn("pull_request_target:", pr_distribution_lifecycle)
+        self.assertIn("actions: write", pr_distribution_lifecycle)
+        self.assertIn("persist-credentials: false", pr_distribution_lifecycle)
+        self.assertIn("--closed-pull-request", pr_distribution_lifecycle)
         self.assertIn("COMMENT_MARKER", sync_pr_distribution)
         self.assertIn("Security: packages contain unreviewed", sync_pr_distribution)
 
@@ -2413,7 +2439,7 @@ class ThemePackageTest(unittest.TestCase):
         )
 
     @unittest.skipIf(os.name == "nt", "POSIX Git release preparation path")
-    def test_create_next_release_builds_initial_changelog_commit_and_tag(self) -> None:
+    def test_create_next_release_applies_initial_major_bump_without_artifacts(self) -> None:
         script = Path("scripts/release/create-next-release.py").resolve()
         with TemporaryDirectory() as directory:
             root = Path(directory)
@@ -2489,6 +2515,8 @@ class ThemePackageTest(unittest.TestCase):
                 (
                     sys.executable,
                     str(script),
+                    "--bump",
+                    "major",
                     "--release-date",
                     "2026-07-12",
                 ),
@@ -2506,7 +2534,7 @@ class ThemePackageTest(unittest.TestCase):
             )
             self.assertEqual(0, completed.returncode, completed.stderr)
             self.assertEqual(
-                "release: v0.1.0",
+                "release: v1.0.0",
                 subprocess.run(
                     ("git", "log", "-1", "--format=%s"),
                     cwd=repository,
@@ -2516,7 +2544,7 @@ class ThemePackageTest(unittest.TestCase):
                 ).stdout.strip(),
             )
             self.assertEqual(
-                ["v0.1.0"],
+                ["v1.0.0"],
                 subprocess.run(
                     ("git", "tag", "--list"),
                     cwd=repository,
@@ -2526,12 +2554,14 @@ class ThemePackageTest(unittest.TestCase):
                 ).stdout.splitlines(),
             )
             changelog = (repository / "CHANGELOG.md").read_text(encoding="utf-8")
-            self.assertIn("## Unreleased\n\n## v0.1.0 - 2026-07-12", changelog)
+            self.assertIn("## Unreleased\n\n## v1.0.0 - 2026-07-12", changelog)
             self.assertIn("- Initial stable package.", changelog)
             self.assertIn("feat: initial package", changelog)
-            self.assertTrue(
-                (repository / "artifacts/release-notes/v0.1.0.md").is_file()
+            self.assertIn(
+                'version = "1.0.0"',
+                (repository / "pyproject.toml").read_text(encoding="utf-8"),
             )
+            self.assertFalse((repository / "artifacts").exists())
             self.assertEqual(
                 [],
                 subprocess.run(
@@ -2541,6 +2571,50 @@ class ThemePackageTest(unittest.TestCase):
                     capture_output=True,
                 ).stdout.splitlines(),
             )
+            subprocess.run(
+                ("git", "push", "origin", "main", "v1.0.0"),
+                cwd=repository,
+                check=True,
+                capture_output=True,
+            )
+            completed = subprocess.run(
+                (
+                    sys.executable,
+                    str(script),
+                    "--",
+                    "--bump",
+                    "patch",
+                    "--release-date",
+                    "2026-07-13",
+                ),
+                cwd=repository,
+                env=os.environ
+                | {
+                    "PYTHON_BIN": sys.executable,
+                    "RELEASE_REPOSITORY_URL": (
+                        "https://github.com/FanaticPythoner/justdocs"
+                    ),
+                },
+                check=False,
+                text=True,
+                capture_output=True,
+            )
+            self.assertEqual(0, completed.returncode, completed.stderr)
+            self.assertIn(
+                'version = "1.0.1"',
+                (repository / "pyproject.toml").read_text(encoding="utf-8"),
+            )
+            self.assertEqual(
+                ["v1.0.0", "v1.0.1"],
+                subprocess.run(
+                    ("git", "tag", "--list", "--sort=v:refname"),
+                    cwd=repository,
+                    check=True,
+                    text=True,
+                    capture_output=True,
+                ).stdout.splitlines(),
+            )
+            self.assertFalse((repository / "artifacts").exists())
 
     def test_pr_distribution_comment_renders_bound_artifact_metadata(self) -> None:
         path = Path("scripts/ci/sync-pr-python-dist-comment.py").resolve()
@@ -2657,7 +2731,10 @@ class ThemePackageTest(unittest.TestCase):
                         },
                         {
                             "id": 81,
-                            "body": module.COMMENT_MARKER,
+                            "body": (
+                                f"{module.COMMENT_MARKER}\nrun-id: 41\n"
+                                f"run-attempt: 1\nhead-sha: {'c' * 40}\n-->"
+                            ),
                             "user": {
                                 "login": "github-actions[bot]",
                                 "type": "Bot",
@@ -2682,6 +2759,73 @@ class ThemePackageTest(unittest.TestCase):
             ("PATCH", "issues/comments/80", {"body": body}),
             client.requests,
         )
+        self.assertIn(("DELETE", "actions/artifacts/73", None), client.requests)
+
+    def test_pr_distribution_close_removes_artifact_and_terminates_comment(self) -> None:
+        path = Path("scripts/ci/sync-pr-python-dist-comment.py").resolve()
+        specification = importlib.util.spec_from_file_location(
+            "sync_pr_python_dist_close_test",
+            path,
+        )
+        self.assertIsNotNone(specification)
+        self.assertIsNotNone(specification.loader)
+        module = importlib.util.module_from_spec(specification)
+        sys.modules[specification.name] = module
+        try:
+            specification.loader.exec_module(module)
+        finally:
+            sys.modules.pop(specification.name, None)
+
+        class FakeClient:
+            repository = "FanaticPythoner/justdocs"
+
+            def __init__(self) -> None:
+                self.requests: list[tuple[str, str, object]] = []
+
+            def request(
+                self,
+                method: str,
+                endpoint: str,
+                payload: object = None,
+            ) -> object:
+                self.requests.append((method, endpoint, payload))
+                if endpoint == "pulls/137":
+                    return {
+                        "number": 137,
+                        "state": "closed",
+                        "head": {"sha": "a" * 40},
+                        "base": {"repo": {"full_name": self.repository}},
+                    }
+                if endpoint.startswith("issues/137/comments?"):
+                    return [
+                        {
+                            "id": 81,
+                            "body": (
+                                f"{module.COMMENT_MARKER}\nrun-id: 42\n"
+                                f"run-attempt: 1\nhead-sha: {'a' * 40}\n-->"
+                            ),
+                            "user": {
+                                "login": "github-actions[bot]",
+                                "type": "Bot",
+                            },
+                        }
+                    ]
+                if endpoint == "actions/runs/42/artifacts?per_page=100":
+                    return {
+                        "artifacts": [
+                            {"id": 73, "name": module.ARTIFACT_NAME},
+                            {"id": 74, "name": "unrelated"},
+                        ]
+                    }
+                return None
+
+        client = FakeClient()
+        module._close(client, 137, "a" * 40)
+        self.assertIn(("DELETE", "actions/artifacts/73", None), client.requests)
+        self.assertNotIn(("DELETE", "actions/artifacts/74", None), client.requests)
+        patches = [request for request in client.requests if request[0] == "PATCH"]
+        self.assertEqual(1, len(patches))
+        self.assertIn("was removed when the pull request closed", patches[0][2]["body"])
 
     def test_github_release_verifier_matches_exact_local_asset_digests(self) -> None:
         path = Path("scripts/release/verify-github-release.py").resolve()
@@ -3253,6 +3397,29 @@ class ThemePackageTest(unittest.TestCase):
                 ],
             )
             self.assertEqual([], list(transaction_parent.iterdir()))
+
+        with TemporaryDirectory() as directory:
+            root = Path(directory)
+            state = transactional_release_state(
+                exists=True,
+                assets={"package.whl": b"wheel"},
+            )
+            environment, _, _, transaction_parent = (
+                transactional_release_environment(root, state)
+            )
+            environment["GH_TOGGLE_LATEST_ON_SECOND_QUERY"] = "1"
+            stable = run_release_preflight(
+                transaction_script,
+                environment,
+                transaction_parent,
+            )
+            self.assertEqual(0, stable.returncode, stable.stderr)
+            cleanup_release_fixture(
+                transaction_script,
+                Path(stable.stdout.strip()),
+                transaction_parent,
+                environment,
+            )
 
         with TemporaryDirectory() as directory:
             root = Path(directory)

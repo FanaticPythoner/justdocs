@@ -861,19 +861,9 @@ def _query_release_by_tag(repository: str, tag: str) -> ReleaseState | None:
         return None
     assets = _query_assets(repository, before.database_id)
     after = _query_release_metadata_by_tag(repository, tag)
-    if after != before:
+    if after is None or replace(before, is_latest=after.is_latest) != after:
         raise ReleaseTransactionError("GitHub release changed during query")
-    return ReleaseState(
-        database_id=before.database_id,
-        tag_name=before.tag_name,
-        immutable=before.immutable,
-        is_draft=before.is_draft,
-        is_latest=before.is_latest,
-        is_prerelease=before.is_prerelease,
-        name=before.name,
-        description=before.description,
-        assets=assets,
-    )
+    return replace(after, assets=assets)
 
 
 def _query_release_by_id(
@@ -3103,6 +3093,10 @@ def _recover(
     transaction_root: Path,
     metadata: TransactionMetadata,
 ) -> TransactionMetadata:
+    if metadata.phase == "committed":
+        if _published_matches_transaction(metadata):
+            return metadata
+        raise ReleaseTransactionError("committed release state changed")
     if metadata.phase in {"tagging", "committing"}:
         return _complete_commit(transaction_root, metadata)
     if metadata.phase != "mutating":

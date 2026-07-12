@@ -316,16 +316,14 @@ def _prepare(arguments: argparse.Namespace) -> str:
     project_source = PROJECT_FILE.read_text(encoding="utf-8")
     current = _project_version(project_source)
     tags = _stable_tags()
+    previous_tag = None
     if tags:
         previous_version, previous_tag = tags[0]
         if current != previous_version:
             raise ReleasePreparationError(
                 f"project version '{current}' does not match latest tag '{previous_tag}'"
             )
-        version = _increment(current, arguments.bump)
-    else:
-        previous_tag = None
-        version = current
+    version = _increment(current, arguments.bump)
     tag = f"v{version}"
     if _git("tag", "--list", tag):
         raise ReleasePreparationError(f"tag '{tag}' already exists")
@@ -354,22 +352,6 @@ def _prepare(arguments: argparse.Namespace) -> str:
     _git("commit", "-m", f"release: {tag}")
     _git("tag", "-a", tag, "-m", f"Release {tag}")
 
-    notes = Path("artifacts/release-notes") / f"{tag}.md"
-    subprocess.run(
-        (
-            "bash",
-            str(Path(__file__).with_name("write-release-notes.sh")),
-            "--channel",
-            "stable",
-            "--tag",
-            tag,
-            "--target",
-            tag,
-            "--output",
-            str(notes),
-        ),
-        check=True,
-    )
     if arguments.push:
         _git(
             "push",
@@ -392,16 +374,23 @@ def _parser() -> argparse.ArgumentParser:
     return parser
 
 
+def _arguments(values: list[str]) -> argparse.Namespace:
+    """Parse direct or Just-forwarded release arguments."""
+
+    if values[:1] == ["--"]:
+        values = values[1:]
+    return _parser().parse_args(values)
+
+
 def main() -> int:
     """Run release preparation and return a process exit code."""
 
     try:
-        tag = _prepare(_parser().parse_args())
+        tag = _prepare(_arguments(sys.argv[1:]))
     except (OSError, ReleasePreparationError, subprocess.CalledProcessError) as error:
         print(f"release preparation failed: {error}", file=sys.stderr)
         return 1
     print(f"created release commit and annotated tag {tag}")
-    print(f"release notes: artifacts/release-notes/{tag}.md")
     return 0
 
 
