@@ -6220,7 +6220,10 @@ class ThemePackageTest(unittest.TestCase):
                     error_message,
                 )
 
-            with module._open_absolute_directory(snapshot_root) as root_descriptor:
+            canonical_snapshot_root = module._canonical_directory(snapshot_root)
+            with module._open_absolute_directory(
+                canonical_snapshot_root
+            ) as root_descriptor:
                 with (
                     patch.object(
                         module,
