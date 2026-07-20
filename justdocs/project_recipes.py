@@ -7,6 +7,7 @@ import shutil
 import signal
 import subprocess
 import sys
+import time
 from contextlib import ExitStack
 from dataclasses import dataclass
 from pathlib import Path
@@ -14,6 +15,10 @@ from pathlib import Path
 from justdocs.constants import DEFAULT_ADDR, DEFAULT_EXTRA_PACKAGES, PACKAGE_NAME
 from justdocs.install_support import InstallSupportError, install_lock, run_command
 from justdocs.project import split_package_spec
+
+
+FREE_PORT_RELEASE_SECONDS = 5.0
+FREE_PORT_POLL_SECONDS = 0.05
 
 
 class ProjectRecipeError(RuntimeError):
@@ -138,9 +143,20 @@ def free_port(config: ProjectRecipeConfig) -> None:
     """Terminate local processes bound to the configured TCP port."""
 
     port = validate_port(config.port_value)
-    pids = bound_process_ids(port)
-    for pid in pids:
-        terminate_process(pid)
+    deadline = time.monotonic() + FREE_PORT_RELEASE_SECONDS
+    while pids := bound_process_ids(port):
+        for pid in pids:
+            terminate_process(pid)
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            remaining_pids = bound_process_ids(port)
+            if not remaining_pids:
+                return
+            rendered_pids = ", ".join(str(pid) for pid in remaining_pids)
+            raise ProjectRecipeError(
+                f"port {port} remains bound by process ids: {rendered_pids}"
+            )
+        time.sleep(min(FREE_PORT_POLL_SECONDS, remaining))
 
 
 def clean(config: ProjectRecipeConfig) -> None:

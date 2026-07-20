@@ -126,6 +126,8 @@ def main(argv: Sequence[str] | None = None) -> int:
 
         try:
             _run_project_recipe(args)
+        except KeyboardInterrupt:
+            return 130
         except (ProjectRecipeError, ProjectJustfileError) as error:
             parser.exit(1, f"{error}\n")
         return 0
