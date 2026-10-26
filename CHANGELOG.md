@@ -5,6 +5,319 @@ and the exact commit boundary included by each immutable version tag.
 
 ## Unreleased
 
+## v1.1.0 - 2026-10-26
+
+- release tag: `v1.1.0`
+- previous release: `v1.0.0`
+
+### Included commits
+
+- [`c9c7ff7`](https://github.com/FanaticPythoner/justdocs/commit/c9c7ff759cc17f68ee5f3c909edb2aa6898729b2) Ensures reliable process interruption and cleanup
+  > Improves the handling of `KeyboardInterrupt` (Ctrl+C) in the CLI to ensure robust termination of child processes and release of system resources.
+  > 
+  > Changes include:
+  > - Spawns child processes in new process groups to enable correct signal propagation.
+  > - Implements a staged process reaping strategy (SIGINT, then SIGTERM, then SIGKILL) with timeouts to gracefully shut down the entire process tree.
+  > - The `free-port` recipe now actively waits for TCP ports to be released after terminating binding processes, preventing orphaned listeners.
+  > - The CLI exits with status code 130 upon `KeyboardInterrupt`, adhering to standard Unix conventions.
+  > - Adds comprehensive tests to validate these interruption and resource cleanup mechanisms.
+- [`771f92a`](https://github.com/FanaticPythoner/justdocs/commit/771f92a7d67af5df5eb4426ce055d21d3e2944f4) build(deps-dev): bump twine from 6.2.0 to 7.0.0
+  > Bumps [twine](https://github.com/pypa/twine) from 6.2.0 to 7.0.0.
+  > - [Release notes](https://github.com/pypa/twine/releases)
+  > - [Changelog](https://github.com/pypa/twine/blob/main/docs/changelog.rst)
+  > - [Commits](https://github.com/pypa/twine/compare/6.2.0...7.0.0)
+  > 
+  > ---
+  > updated-dependencies:
+  > - dependency-name: twine
+  >   dependency-version: 7.0.0
+  >   dependency-type: direct:development
+  >   update-type: version-update:semver-major
+  > ...
+  > 
+  > Signed-off-by: dependabot[bot] <support@github.com>
+- [`55d6d2a`](https://github.com/FanaticPythoner/justdocs/commit/55d6d2af331de5e71128eef6947cb3356d663db7) build(deps-dev): bump setuptools from 83.0.0 to 84.0.0
+  > Bumps [setuptools](https://github.com/pypa/setuptools) from 83.0.0 to 84.0.0.
+  > - [Release notes](https://github.com/pypa/setuptools/releases)
+  > - [Changelog](https://github.com/pypa/setuptools/blob/main/NEWS.rst)
+  > - [Commits](https://github.com/pypa/setuptools/compare/v83.0.0...v84.0.0)
+  > 
+  > ---
+  > updated-dependencies:
+  > - dependency-name: setuptools
+  >   dependency-version: 84.0.0
+  >   dependency-type: direct:development
+  >   update-type: version-update:semver-major
+  > ...
+  > 
+  > Signed-off-by: dependabot[bot] <support@github.com>
+- [`46f83b3`](https://github.com/FanaticPythoner/justdocs/commit/46f83b33dc395f20014ceee6ef88ed80a12f79c1) build(deps): bump the github-actions group across 1 directory with 6 updates
+  > Bumps the github-actions group with 6 updates in the / directory:
+  > 
+  > | Package | From | To |
+  > | --- | --- | --- |
+  > | [actions/checkout](https://github.com/actions/checkout) | `7.0.0` | `7.0.1` |
+  > | [actions/setup-python](https://github.com/actions/setup-python) | `6.3.0` | `7.0.0` |
+  > | [pypa/gh-action-pypi-publish](https://github.com/pypa/gh-action-pypi-publish) | `1.14.0` | `1.14.2` |
+  > | [actions/attest-build-provenance](https://github.com/actions/attest-build-provenance) | `4.1.1` | `4.2.2` |
+  > | [github/codeql-action/init](https://github.com/github/codeql-action) | `4.37.0` | `4.37.6` |
+  > | [github/codeql-action/analyze](https://github.com/github/codeql-action) | `4.37.0` | `4.37.6` |
+  > 
+  > 
+  > 
+  > Updates `actions/checkout` from 7.0.0 to 7.0.1
+  > - [Release notes](https://github.com/actions/checkout/releases)
+  > - [Changelog](https://github.com/actions/checkout/blob/main/CHANGELOG.md)
+  > - [Commits](https://github.com/actions/checkout/compare/9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0...3d3c42e5aac5ba805825da76410c181273ba90b1)
+  > 
+  > Updates `actions/setup-python` from 6.3.0 to 7.0.0
+  > - [Release notes](https://github.com/actions/setup-python/releases)
+  > - [Commits](https://github.com/actions/setup-python/compare/ece7cb06caefa5fff74198d8649806c4678c61a1...5fda3b95a4ea91299a34e894583c3862153e4b97)
+  > 
+  > Updates `pypa/gh-action-pypi-publish` from 1.14.0 to 1.14.2
+  > - [Release notes](https://github.com/pypa/gh-action-pypi-publish/releases)
+  > - [Commits](https://github.com/pypa/gh-action-pypi-publish/compare/cef221092ed1bacb1cc03d23a2d87d1d172e277b...dc37677b2e1c63e2034f94d8a5b11f265b73ba33)
+  > 
+  > Updates `actions/attest-build-provenance` from 4.1.1 to 4.2.2
+  > - [Release notes](https://github.com/actions/attest-build-provenance/releases)
+  > - [Changelog](https://github.com/actions/attest-build-provenance/blob/main/RELEASE.md)
+  > - [Commits](https://github.com/actions/attest-build-provenance/compare/0f67c3f4856b2e3261c31976d6725780e5e4c373...4d101475d8b20a2381f78447822ac1eab6504dd8)
+  > 
+  > Updates `github/codeql-action/init` from 4.37.0 to 4.37.6
+  > - [Release notes](https://github.com/github/codeql-action/releases)
+  > - [Changelog](https://github.com/github/codeql-action/blob/main/CHANGELOG.md)
+  > - [Commits](https://github.com/github/codeql-action/compare/99df26d4f13ea111d4ec1a7dddef6063f76b97e9...5595ccaf912efad79be6eef63a5619ff05969be3)
+  > 
+  > Updates `github/codeql-action/analyze` from 4.37.0 to 4.37.6
+  > - [Release notes](https://github.com/github/codeql-action/releases)
+  > - [Changelog](https://github.com/github/codeql-action/blob/main/CHANGELOG.md)
+  > - [Commits](https://github.com/github/codeql-action/compare/99df26d4f13ea111d4ec1a7dddef6063f76b97e9...5595ccaf912efad79be6eef63a5619ff05969be3)
+  > 
+  > ---
+  > updated-dependencies:
+  > - dependency-name: actions/checkout
+  >   dependency-version: 7.0.1
+  >   dependency-type: direct:production
+  >   update-type: version-update:semver-patch
+  >   dependency-group: github-actions
+  > - dependency-name: actions/setup-python
+  >   dependency-version: 7.0.0
+  >   dependency-type: direct:production
+  >   update-type: version-update:semver-major
+  >   dependency-group: github-actions
+  > - dependency-name: pypa/gh-action-pypi-publish
+  >   dependency-version: 1.14.2
+  >   dependency-type: direct:production
+  >   update-type: version-update:semver-patch
+  >   dependency-group: github-actions
+  > - dependency-name: actions/attest-build-provenance
+  >   dependency-version: 4.2.2
+  >   dependency-type: direct:production
+  >   update-type: version-update:semver-minor
+  >   dependency-group: github-actions
+  > - dependency-name: github/codeql-action/init
+  >   dependency-version: 4.37.6
+  >   dependency-type: direct:production
+  >   update-type: version-update:semver-patch
+  >   dependency-group: github-actions
+  > - dependency-name: github/codeql-action/analyze
+  >   dependency-version: 4.37.6
+  >   dependency-type: direct:production
+  >   update-type: version-update:semver-patch
+  >   dependency-group: github-actions
+  > ...
+  > 
+  > Signed-off-by: dependabot[bot] <support@github.com>
+- [`92472d2`](https://github.com/FanaticPythoner/justdocs/commit/92472d234b825dded0a0937e0132d591d13e0270) build(deps-dev): bump build from 1.5.1 to 1.6.1
+  > Bumps [build](https://github.com/pypa/build) from 1.5.1 to 1.6.1.
+  > - [Release notes](https://github.com/pypa/build/releases)
+  > - [Changelog](https://github.com/pypa/build/blob/main/CHANGELOG.rst)
+  > - [Commits](https://github.com/pypa/build/compare/1.5.1...1.6.1)
+  > 
+  > ---
+  > updated-dependencies:
+  > - dependency-name: build
+  >   dependency-version: 1.6.1
+  >   dependency-type: direct:development
+  >   update-type: version-update:semver-minor
+  > ...
+  > 
+  > Signed-off-by: dependabot[bot] <support@github.com>
+- [`d9797a7`](https://github.com/FanaticPythoner/justdocs/commit/d9797a7f4c879d187d1aea731f4939af16e170f3) feat: validate artifact dependencies and link heading references
+  > Extend justdocs-linker with declared page and section references, scoped
+  > artifact prerequisites, and an opt-in dependency graph report. Adjust
+  > anchor offsets, content wrapping, and responsive table layout.
+  > 
+  > Heading references:
+  > - Share heading, reference ID, declaration, and fenced-code patterns
+  >   between smart linking and dependency parsing in justdocs.references.
+  > - Recognize case-insensitive bracketed IDs with an alphabetic start,
+  >   trailing digits, and optional numeric hyphen segments.
+  > - Resolve level-one declarations to pages and deeper declarations to
+  >   heading fragments; expose both ID and title aliases.
+  > - Collect heading targets once per source page.
+  > - Exclude fenced examples from target discovery, including backtick
+  >   and tilde fences with longer closing markers or no closing marker.
+  > - Permit reference IDs shorter than min_phrase_chars while retaining
+  >   ordinary phrase eligibility and ambiguity filtering.
+  > - Reject case-insensitive reference ID collisions across different
+  >   destinations instead of silently excluding conflicting references.
+  > - Link declared IDs in prose and inline code, including existing
+  >   action IDs, while preserving protected Markdown ranges.
+  > - Exempt reference IDs from max_links_per_target while retaining the
+  >   shared max_links_per_page ceiling and ordinary phrase repetition cap.
+  > - Permit same-page section references and emit fragment-only URLs.
+  >   Continue excluding ordinary same-page phrases and page-self references.
+  > - Remove the ordinary phrase repetition argument from inline-code
+  >   reference processing.
+  > 
+  > Artifact declarations:
+  > - Add immutable DependencyNode records containing ID, title, prerequisites,
+  >   owner, scope, produced artifact, verification, source path, and line.
+  > - Parse metadata immediately following each reference heading, stopping
+  >   at the next heading so nested sections cannot supply parent metadata.
+  > - Require nonempty Owner, Requires, Scope, Produces, and Verify fields;
+  >   accept optional list prefixes and reject duplicate required fields.
+  > - Mask fenced content while preserving newlines and source locations.
+  > - Normalize declaration and prerequisite IDs to uppercase.
+  > - Accept exactly None for an empty prerequisite list or comma-separated
+  >   reference IDs; reject prose, negation, malformed or empty entries,
+  >   and duplicate prerequisites.
+  > - Restrict scopes to shared, build, and target.
+  > - Raise DependencyError with declaration locations for parsing failures.
+  > 
+  > Dependency graph:
+  > - Reject empty declaration sets, duplicate IDs, unknown prerequisites,
+  >   invalid scopes, and target declarations without configured bindings.
+  > - Require unique target names matching [a-z][a-z0-9-]*.
+  > - Enforce shared < build < target scope ordering; reject dependencies
+  >   on a later scope.
+  > - Instantiate shared and build nodes once and target nodes separately
+  >   as ID@target for each configured binding.
+  > - Bind target prerequisites to the consuming target while retaining
+  >   shared and build prerequisites without target suffixes.
+  > - Canonicalize templates by ID and retain configured target order.
+  > - Compute sorted topological layers and flatten them into a
+  >   prerequisite-first order independent of input-node ordering.
+  > - Reject self-dependencies and disconnected cycles across the complete
+  >   expanded graph.
+  > - Report a closed cycle path through an iterative traversal that avoids
+  >   Python recursion-depth dependence.
+  > - Return schema version 1 with targets, full declaration metadata,
+  >   source locations, expanded nodes and prerequisite edges, layers,
+  >   execution order, and template/node/edge/layer counts.
+  > - Bound expanded graph processing to O(v log v + e) time and O(v + e)
+  >   space, where v and e count instantiated nodes and edges.
+  > 
+  > MkDocs integration:
+  > - Add validate_dependencies=false and dependency_targets=[] options.
+  > - Run dependency checks independently of enabled link insertion.
+  > - Scan documentation pages for declarations when checking is enabled;
+  >   preserve the early return when both features are disabled.
+  > - Generate dependency-graph.json through File.generated after successful
+  >   checking, with indented JSON and a trailing newline.
+  > - Reserve dependency-graph.json while checking is enabled and reject
+  >   an existing source file at that path.
+  > - Change JustdocsLinkerError from RuntimeError to MkDocs PluginError.
+  > - Translate parsing and graph failures into chained JustdocsLinkerError
+  >   exceptions for native MkDocs build diagnostics.
+  > 
+  > Responsive layout:
+  > - Introduce --topbar-min-height at 64px and initialize --topbar-height
+  >   from that minimum.
+  > - Use an automatic first grid row and apply the minimum height to the
+  >   topbar instead of fixing the row to --topbar-height.
+  > - Offset document scrolling by --topbar-height plus 1rem.
+  > - Allow arbitrary wrapping in main content while restoring normal
+  >   wrapping for table headers.
+  > - Remove the drawer-specific fixed table-layout override.
+  > - Replace mobile table cells' two-column grid with block layout.
+  > - Place mobile data labels above values with 0.25rem bottom spacing.
+  > 
+  > Documentation:
+  > - Extend README and bundled smart-link guidance with reference
+  >   declarations, destination uniqueness, short IDs, same-page sections,
+  >   inline-code references, and reference repetition behavior.
+  > - Document independent dependency checking, target configuration,
+  >   required metadata, scope ordering, cycle rejection, report contents,
+  >   and reserved-path handling.
+  > - Include F7-1 library and T1 producer declarations with explicit
+  >   ownership, prerequisites, outputs, and verification requirements.
+  > - State parsing complexity as O(p + h) and distinguish declared ordering
+  >   feasibility from implementation completion and live execution evidence.
+  > - Add JustdocsLinkerError to the documented error surface.
+  > 
+  > Dependency regression assertions:
+  > - Add 17 dependency tests covering declaration locations, fenced
+  >   exclusions, longer closing markers, and unclosed fences.
+  > - Check every required field for missing, empty, and duplicate values;
+  >   reject metadata borrowed from nested headings.
+  > - Cover lowercase ID normalization, list-prefixed metadata, malformed
+  >   prerequisites, invalid scopes and target names, duplicate IDs,
+  >   unknown prerequisites, and empty graphs.
+  > - Accept the F7-1 -> T1 -> F7 milestone chain and reject the resulting
+  >   F7 -> T1 -> F7 cycle when T1 requires the complete F7 artifact.
+  > - Cover self-cycles, disconnected cycles, scope inversions, and
+  >   target declarations without bindings.
+  > - Assert eight expanded nodes for a four-template, three-target fixture,
+  >   same-target prerequisite binding, and input-node reversal invariance.
+  > - Compare all 64 directed three-node graphs without self-edges against
+  >   an independent permutation oracle.
+  > - Exercise a 1,200-node cycle and require an explicit cycle diagnostic.
+  > - Add native strict-build assertions for report generation, same-page
+  >   prerequisite links, and cycle errors through MkDocs Abort handling.
+  > - Assert opt-in behavior, independent checking with linking disabled,
+  >   and rejection of a conflicting dependency-graph.json source.
+  > - Add CLI assertions for exit code 1, a dependency-cycle diagnostic,
+  >   and absence of a Python traceback.
+  > 
+  > Reference regression assertions:
+  > - Add nine tests covering page/section destinations, title aliases,
+  >   fenced target exclusion, short-ID eligibility, and conflicting IDs.
+  > - Assert exact reference boundaries, relative section URLs, protected
+  >   existing links and fences, and inline-code reference insertion.
+  > - Assert four repeated reference links alongside one ordinary phrase
+  >   link with max_links_per_target=1.
+  > - Assert the two-link page ceiling still limits repeated references.
+  > - Cover same-page prose/code section jumps and unchanged page-self
+  >   references without fragments.
+  > - Remove the CSS assertion requiring fixed drawer table layout.
+  > 
+  > Checks:
+  > - git diff --cached --check passes with exit code 0 and no output.
+  > - Index-backed Python parsing and compilation pass for all five staged
+  >   Python files.
+  > - An in-memory unittest harness using staged module and assertion bytes
+  >   passes 23 tests: 14 dependency tests and nine reference-link tests.
+  > - Run the selected assertions with PYTHONDONTWRITEBYTECODE=1 and
+  >   PYTHONHASHSEED=0, without repository artifacts.
+  > - The three native build/CLI methods, existing package suite, browser
+  >   behavior, and packaging builds are not executed in this check.
+  > - Final inspection confirms unchanged HEAD and cached patch identity,
+  >   with no tracked unstaged or nonignored untracked paths.
+  > 
+  > Measurements:
+  > - Staged scope: eight files, 744 insertions, 47 deletions.
+  > - File topology: three additions and five modifications.
+  > - Test topology: 26 added methods and one removed method.
+  > - Current index-backed assertion run: 23 tests pass in 0.026 seconds.
+- [`4e7b60a`](https://github.com/FanaticPythoner/justdocs/commit/4e7b60a46f609ecc22bf3669ad6708fc3541560f) ci fix
+- [`40ee793`](https://github.com/FanaticPythoner/justdocs/commit/40ee793bf632eeddddf59f52c9a4a86d55beecbc) Potential fix for code scanning alert no. 6: Cache Poisoning via execution of untrusted code
+  > Co-authored-by: Copilot Autofix powered by AI <62310815+github-advanced-security[bot]@users.noreply.github.com>
+- [`012e8a6`](https://github.com/FanaticPythoner/justdocs/commit/012e8a6456ab31b4a28f810ebbd3fc3064305ddd) Merge pull request #14 from FanaticPythoner/alert-autofix-6
+  > Potential fix for code scanning alert no. 6: Cache Poisoning via execution of untrusted code
+- [`cb31ad1`](https://github.com/FanaticPythoner/justdocs/commit/cb31ad189b63efefe185a940bb68ef244a30423e) Merge pull request #13 from FanaticPythoner/dependabot/pip/main/build-1.6.1
+  > build(deps-dev): bump build from 1.5.1 to 1.6.1
+- [`58a86f0`](https://github.com/FanaticPythoner/justdocs/commit/58a86f0411abca8560fedefabe414a66dc40af29) Merge pull request #11 from FanaticPythoner/dependabot/github_actions/main/github-actions-9e7f420af7
+  > build(deps): bump the github-actions group across 1 directory with 6 updates
+- [`9b60919`](https://github.com/FanaticPythoner/justdocs/commit/9b60919d573a5430be954d7833d5e19409a0e887) Merge pull request #10 from FanaticPythoner/dependabot/pip/main/setuptools-84.0.0
+  > build(deps-dev): bump setuptools from 83.0.0 to 84.0.0
+- [`34a3438`](https://github.com/FanaticPythoner/justdocs/commit/34a3438aa5010a1967871fba841202c487beab1d) Merge branch 'main' into dependabot/pip/main/twine-7.0.0
+- [`062deef`](https://github.com/FanaticPythoner/justdocs/commit/062deefcb25ab964114ba2b706dfab76cec6e613) Merge pull request #9 from FanaticPythoner/dependabot/pip/main/twine-7.0.0
+  > build(deps-dev): bump twine from 6.2.0 to 7.0.0
+- [`a7963ae`](https://github.com/FanaticPythoner/justdocs/commit/a7963ae0b646dd917315b6d7ed87b66064b6566f) Bump version from 1.0.0 to 1.1.0
+- [`39e7a07`](https://github.com/FanaticPythoner/justdocs/commit/39e7a07002bdee3886769210034f228d91be1ad4) Revert commit version from 1.1.0 to 1.0.0
+
 ## v1.0.0 - 2026-07-12
 
 - release tag: `v1.0.0`
