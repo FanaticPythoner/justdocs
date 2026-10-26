@@ -1,5 +1,6 @@
 :root {
-    --topbar-height: 64px;
+    --topbar-min-height: 64px;
+    --topbar-height: var(--topbar-min-height);
     --left-sidebar-width: 296px;
     --right-sidebar-width: 260px;
     --left-sidebar-min: 220px;
@@ -83,6 +84,7 @@ html[data-theme="dark"] {
 
 html {
     scroll-behavior: smooth;
+    scroll-padding-top: calc(var(--topbar-height) + 1rem);
     text-size-adjust: 100%;
 }
 
@@ -143,7 +145,7 @@ body {
     margin: 0;
     display: grid;
     grid-template-columns: var(--left-sidebar-width) minmax(0, 1fr) var(--right-sidebar-width);
-    grid-template-rows: var(--topbar-height) minmax(0, 1fr);
+    grid-template-rows: auto minmax(0, 1fr);
     color: var(--text);
     background: var(--bg);
     font-family: var(--font-text);
@@ -178,7 +180,7 @@ body {
     align-items: center;
     gap: 1rem;
     min-width: 0;
-    min-height: var(--topbar-height);
+    min-height: var(--topbar-min-height);
     padding: 0 1.5rem;
     border-bottom: 1px solid var(--border);
     background: var(--topbar-bg);
@@ -712,6 +714,7 @@ main {
     margin: 0 auto;
     padding-block: var(--main-padding-block);
     padding-inline: var(--main-padding-inline);
+    overflow-wrap: anywhere;
     overflow-x: auto;
     overscroll-behavior-x: contain;
 }
@@ -978,6 +981,7 @@ th {
     color: var(--text);
     background: var(--surface-alt);
     font-weight: 700;
+    overflow-wrap: normal;
 }
 
 tr:nth-child(even) td {
@@ -1141,10 +1145,6 @@ html[data-justdocs-viewport="drawer"] body {
 html[data-justdocs-viewport="drawer"] main {
     grid-column: 2 / 4;
     max-width: var(--content-max-width);
-}
-
-html[data-justdocs-viewport="drawer"] table {
-    table-layout: fixed;
 }
 
 html[data-justdocs-viewport="drawer"] nav.right {
@@ -1319,9 +1319,7 @@ html[data-justdocs-viewport="mobile"] tr:nth-child(even) td {
 
 html[data-justdocs-viewport="mobile"] th,
 html[data-justdocs-viewport="mobile"] td {
-    display: grid;
-    grid-template-columns: minmax(7rem, 38%) minmax(0, 1fr);
-    gap: 0.75rem;
+    display: block;
     padding: 0.65rem 0.75rem;
     border: 0;
     border-bottom: 1px solid var(--border);
@@ -1329,6 +1327,8 @@ html[data-justdocs-viewport="mobile"] td {
 }
 
 html[data-justdocs-viewport="mobile"] td::before {
+    display: block;
+    margin-bottom: 0.25rem;
     color: var(--muted);
     content: attr(data-label);
     font-weight: 700;
