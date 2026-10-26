@@ -10,8 +10,9 @@ import subprocess
 import sys
 import time
 import unittest
+from contextlib import ExitStack
 from pathlib import Path
-from tempfile import TemporaryDirectory
+from tempfile import TemporaryDirectory, TemporaryFile
 from unittest.mock import Mock, call, patch
 
 from justdocs import install_support, project_recipes
@@ -25,6 +26,16 @@ REPOSITORY_ROOT = Path(__file__).resolve().parents[1]
 STARTUP_TIMEOUT_SECONDS = 90.0
 EXIT_TIMEOUT_SECONDS = 15.0
 PROCESS_EXIT_POLL_SECONDS = 0.025
+LISTENER_SCRIPT = """\
+import socket
+import sys
+
+with socket.socket(fileno=int(sys.argv[1])) as listener:
+    listener.listen()
+    while True:
+        connection, _address = listener.accept()
+        connection.close()
+"""
 
 
 def _unused_loopback_port() -> int:
@@ -168,39 +179,143 @@ def _create_project(directory: str, port: int) -> Path:
     return root
 
 
-def _start_listener(root: Path, port: int) -> subprocess.Popen[bytes]:
-    """Start one isolated loopback TCP listener."""
+def _start_listener(
+    *, timeout_seconds: float = EXIT_TIMEOUT_SECONDS
+) -> tuple[subprocess.Popen[bytes], int]:
+    """Start a resolver-independent child owning a kernel-selected TCP port."""
 
-    process = subprocess.Popen(
-        (
-            sys.executable,
-            "-m",
-            "http.server",
-            str(port),
-            "--bind",
-            "127.0.0.1",
-            "--directory",
-            str(root),
-        ),
-        stdout=subprocess.DEVNULL,
-        stderr=subprocess.DEVNULL,
-        start_new_session=True,
-    )
-    try:
-        _wait_for_port(port, bound=True, timeout_seconds=EXIT_TIMEOUT_SECONDS)
-    except BaseException:
-        os.killpg(process.pid, signal.SIGKILL)
-        process.wait()
-        raise
-    return process
+    with TemporaryFile() as output:
+        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as listener:
+            listener.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+            listener.bind(("127.0.0.1", 0))
+            port = int(listener.getsockname()[1])
+            descriptor = listener.fileno()
+            process = subprocess.Popen(
+                (sys.executable, "-c", LISTENER_SCRIPT, str(descriptor)),
+                pass_fds=(descriptor,),
+                stdout=output,
+                stderr=subprocess.STDOUT,
+                start_new_session=True,
+            )
+        try:
+            deadline = time.monotonic() + timeout_seconds
+            while True:
+                returncode = process.poll()
+                if returncode is not None:
+                    failure = f"TCP listener exited with code {returncode} on port {port}"
+                elif _port_is_bound(port):
+                    return process, port
+                elif time.monotonic() >= deadline:
+                    failure = f"TCP listener startup deadline expired on port {port}"
+                else:
+                    time.sleep(PROCESS_EXIT_POLL_SECONDS)
+                    continue
+                output.seek(0)
+                diagnostics = output.read().decode("utf-8", errors="replace").strip()
+                raise AssertionError(f"{failure}\n{diagnostics}".rstrip())
+        except BaseException:
+            _reap_listener(process)
+            raise
 
 
 def _reap_listener(process: subprocess.Popen[bytes]) -> None:
     """Reap one isolated loopback TCP listener."""
 
     if process.poll() is None:
-        os.killpg(process.pid, signal.SIGKILL)
-    process.wait()
+        process.kill()
+    process.wait(timeout=EXIT_TIMEOUT_SECONDS)
+
+
+@unittest.skipUnless(os.name == "posix", "inherited TCP sockets require POSIX")
+class ListenerFixtureTests(unittest.TestCase):
+    """Verify listener ownership, resolver independence, and startup failures."""
+
+    def test_listener_owns_port_without_hostname_resolution(self) -> None:
+        with TemporaryDirectory() as directory, ExitStack() as cleanup:
+            (Path(directory) / "sitecustomize.py").write_text(
+                "import socket\n"
+                "from pathlib import Path\n"
+                "Path(__file__).with_suffix('.loaded').touch()\n"
+                "def reject_resolution(*args, **kwargs):\n"
+                "    raise RuntimeError('hostname resolution disabled')\n"
+                "socket.getfqdn = reject_resolution\n"
+                "socket.getaddrinfo = reject_resolution\n"
+                "socket.gethostbyaddr = reject_resolution\n",
+                encoding="utf-8",
+            )
+            with patch.dict(os.environ, {"PYTHONPATH": directory}):
+                process, port = _start_listener()
+            cleanup.callback(_reap_listener, process)
+            self.assertTrue((Path(directory) / "sitecustomize.loaded").is_file())
+            owners = project_recipes.bound_process_ids(str(port))
+            self.assertIn(process.pid, owners)
+            self.assertNotIn(os.getpid(), owners)
+            self.assertTrue(_port_is_bound(port))
+        self.assertIsNotNone(process.poll())
+        _reap_listener(process)
+        _wait_for_port(port, bound=False, timeout_seconds=EXIT_TIMEOUT_SECONDS)
+
+    def test_listener_port_can_be_rebound_after_accepted_connection(self) -> None:
+        process, port = _start_listener()
+        try:
+            with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as client:
+                client.settimeout(EXIT_TIMEOUT_SECONDS)
+                client.connect(("127.0.0.1", port))
+                self.assertEqual(b"", client.recv(1))
+        finally:
+            _reap_listener(process)
+        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as replacement:
+            replacement.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+            replacement.bind(("127.0.0.1", port))
+            replacement.listen()
+            self.assertTrue(_port_is_bound(port))
+
+    def test_listener_exit_reports_stderr_and_reaps_process(self) -> None:
+        module = sys.modules[__name__]
+        with (
+            patch.object(
+                module,
+                "LISTENER_SCRIPT",
+                "import sys; sys.stderr.write('listener startup failed\\n'); sys.exit(7)",
+            ),
+            patch.object(module, "_reap_listener", wraps=_reap_listener) as reap,
+            self.assertRaisesRegex(
+                AssertionError,
+                r"TCP listener exited with code 7 on port \d+\nlistener startup failed",
+            ),
+        ):
+            _start_listener()
+        reap.assert_called_once()
+        self.assertEqual(7, reap.call_args.args[0].poll())
+
+    def test_listener_startup_deadline_reaps_process(self) -> None:
+        module = sys.modules[__name__]
+        with (
+            patch.object(
+                module,
+                "LISTENER_SCRIPT",
+                "import time; time.sleep(60)",
+            ),
+            patch.object(module, "_reap_listener", wraps=_reap_listener) as reap,
+            self.assertRaisesRegex(
+                AssertionError,
+                r"TCP listener startup deadline expired on port \d+",
+            ),
+        ):
+            _start_listener(timeout_seconds=0.0)
+        reap.assert_called_once()
+        self.assertEqual(-signal.SIGKILL, reap.call_args.args[0].poll())
+
+    def test_listener_startup_interrupt_reaps_process(self) -> None:
+        module = sys.modules[__name__]
+        with (
+            patch.object(module, "_port_is_bound", side_effect=KeyboardInterrupt),
+            patch.object(module, "_reap_listener", wraps=_reap_listener) as reap,
+            self.assertRaises(KeyboardInterrupt),
+        ):
+            _start_listener()
+        reap.assert_called_once()
+        self.assertEqual(-signal.SIGKILL, reap.call_args.args[0].poll())
 
 
 class ProcessLifecycleTests(unittest.TestCase):
@@ -274,10 +389,13 @@ class CliInterruptTests(unittest.TestCase):
 
     def _interrupt_server(self, command: str, *, occupy_port: bool = False) -> str:
         assert PTY is not None
-        with TemporaryDirectory() as directory:
-            port = _unused_loopback_port()
+        with TemporaryDirectory() as directory, ExitStack() as cleanup:
+            if occupy_port:
+                listener, port = _start_listener()
+                cleanup.callback(_reap_listener, listener)
+            else:
+                listener, port = None, _unused_loopback_port()
             root = _create_project(directory, port)
-            listener = _start_listener(root, port) if occupy_port else None
             argv = _project_command(root, command, port)
             pid, master_fd = PTY.fork()
             if pid == 0:
@@ -324,8 +442,6 @@ class CliInterruptTests(unittest.TestCase):
                         pass
                     _child, status = os.waitpid(pid, 0)
                 os.close(master_fd)
-                if listener is not None:
-                    _reap_listener(listener)
             rendered = output.decode("utf-8", errors="replace")
             self.assertEqual(130, os.waitstatus_to_exitcode(status))
             self.assertNotIn("Traceback (most recent call last)", rendered)
@@ -341,29 +457,27 @@ class CliInterruptTests(unittest.TestCase):
         self._interrupt_server("serve-clean", occupy_port=True)
 
     def test_projects_free_port_is_idempotent(self) -> None:
-        with TemporaryDirectory() as directory:
-            port = _unused_loopback_port()
+        with TemporaryDirectory() as directory, ExitStack() as cleanup:
+            listener, port = _start_listener()
+            cleanup.callback(_reap_listener, listener)
             root = _create_project(directory, port)
-            listener = _start_listener(root, port)
-            try:
-                first = subprocess.run(
-                    _project_command(root, "free-port", port),
-                    cwd=REPOSITORY_ROOT,
-                    check=False,
-                    capture_output=True,
-                    text=True,
-                )
-                second = subprocess.run(
-                    _project_command(root, "free-port", port),
-                    cwd=REPOSITORY_ROOT,
-                    check=False,
-                    capture_output=True,
-                    text=True,
-                )
-            finally:
-                _reap_listener(listener)
+            first = subprocess.run(
+                _project_command(root, "free-port", port),
+                cwd=REPOSITORY_ROOT,
+                check=False,
+                capture_output=True,
+                text=True,
+            )
+            second = subprocess.run(
+                _project_command(root, "free-port", port),
+                cwd=REPOSITORY_ROOT,
+                check=False,
+                capture_output=True,
+                text=True,
+            )
             self.assertEqual(0, first.returncode, first.stderr)
             self.assertEqual(0, second.returncode, second.stderr)
             self.assertNotIn("Traceback (most recent call last)", first.stderr)
             self.assertNotIn("Traceback (most recent call last)", second.stderr)
+            self.assertIsNotNone(listener.poll())
             _wait_for_port(port, bound=False, timeout_seconds=EXIT_TIMEOUT_SECONDS)
