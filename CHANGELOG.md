@@ -5,6 +5,137 @@ and the exact commit boundary included by each immutable version tag.
 
 ## Unreleased
 
+## v1.1.1 - 2026-10-26
+
+- release tag: `v1.1.1`
+- previous release: `v1.1.0`
+
+### Included commits
+
+- [`506b35f`](https://github.com/FanaticPythoner/justdocs/commit/506b35f4d9d6419a3a2dcc55e5b0e300cbbcfa10) fix: repair release checks and PR distribution publishing
+  > Remove duplicated dependency pins from release assertions and build tooling.
+  > Resolve PR distribution runs through commit associations when workflow event
+  > payloads omit pull requests, and coordinate publication with artifact cleanup.
+  > 
+  > Release build dependencies:
+  > - Install .[release] through the selected Python interpreter instead of
+  >   duplicating build and Twine requirements in build-python-package.sh.
+  > - Follow the package release extras for build==1.6.1 and twine==7.0.0 instead
+  >   of installing the script's obsolete build==1.5.1 and twine==6.2.0 pins.
+  > - Advance the build composite from setup-python v6 at
+  >   ece7cb06caefa5fff74198d8649806c4678c61a1 to v7.0.0 at
+  >   5fda3b95a4ea91299a34e894583c3862153e4b97.
+  > - Align the composite's Python setup revision with workflow references.
+  > 
+  > Release workflow assertions:
+  > - Replace copied action SHAs with action identities for checkout, Python
+  >   setup, artifact upload/download, PyPI publication, provenance,
+  >   dependency review, and CodeQL initialization and analysis.
+  > - Retain the requirement that every external action reference contains
+  >   an immutable 40-character lowercase hexadecimal revision.
+  > - Require repeated references to each action identity to use one revision
+  >   across workflows and composite actions.
+  > - Compare expected action inventories independently of revision values,
+  >   allowing dependency maintenance without duplicating pins in tests.
+  > - Keep artifact upload/download assertions associated with action identity
+  >   as revisions change.
+  > - Require exact numeric setuptools, build, and Twine pins in package
+  >   metadata without asserting obsolete version values.
+  > - Reject duplicate build-tool pins in the build script and require
+  >   installation through .[release].
+  > - Assert artifact-deletion permission on the PR publisher job.
+  > 
+  > PR run identity:
+  > - Add _run_pull_request to query the repository's
+  >   commits/<head_sha>/pulls endpoint with explicit pagination.
+  > - Resolve associations through the API regardless of empty or conflicting
+  >   embedded workflow_run.pull_requests entries.
+  > - Require nonempty source repository and source branch identities.
+  > - Match candidates against the client repository as the PR base, the
+  >   workflow run's source repository, and the workflow run's source branch.
+  > - Accept fork associations only when their source repository matches.
+  > - Require positive integer PR numbers and reject boolean values.
+  > - Deduplicate matching numbers and reject multiple distinct matches
+  >   immediately; reject an exhausted inventory without a unique match.
+  > - Examine up to 100 pages of 100 candidates and raise an explicit error
+  >   when enumeration exhausts that bound.
+  > - Reject malformed inventories and candidate objects; propagate API
+  >   failures through DistributionCommentError.
+  > - Pass GitHubClient into _load_context and derive the expected run URL
+  >   from its repository identity.
+  > - Reject event repository mismatches before association API access,
+  >   retaining completed-CI, SHA, URL, run ID, and attempt checks.
+  > - Resolve associations independently of the PR's current head SHA so
+  >   existing stale-run and closed-PR cleanup paths remain reachable.
+  > - Pass the client through main to the revised context loader.
+  > 
+  > Publisher permissions and coordination:
+  > - Grant actions: write to the publisher job for artifact deletion while
+  >   retaining contents: read and pull-requests: write.
+  > - Preserve trusted default-branch checkout and disabled credential
+  >   persistence for the job receiving write permissions.
+  > - Replace embedded-PR-number concurrency groups with repository, source
+  >   repository, and source branch identities.
+  > - Use matching group identities for workflow-run publication and
+  >   pull-request closure.
+  > - Add queue: max to both jobs and retain cancel-in-progress: false so
+  >   publication and cleanup queue without cancelling running mutations.
+  > 
+  > PR association regression assertions:
+  > - Add 15 test methods with temporary event payloads, mocked repository
+  >   responses, captured output, and explicit API-call assertions.
+  > - Cover empty embedded associations, retained run identity, and the exact
+  >   commit-association query.
+  > - Assert that conflicting embedded PR numbers do not override API identity.
+  > - Cover pagination through a full unrelated page before a matching PR.
+  > - Reject multiple matches, mismatched source branches or repositories,
+  >   mismatched base repositories, and missing head repositories.
+  > - Accept a correctly bound fork source.
+  > - Reject invalid run IDs, attempts, workflow names, events, completion
+  >   states, conclusions, SHAs, URLs, repositories, and source identities
+  >   before API access.
+  > - Reject malformed API inventories, invalid candidate objects, boolean
+  >   PR numbers, and nonpositive PR numbers.
+  > - Assert the 100-request enumeration bound and API error propagation.
+  > 
+  > Publisher lifecycle regression assertions:
+  > - Assert successful publication creates one comment containing the
+  >   run-bound artifact URL when embedded associations are empty.
+  > - Assert closed PRs resolve through commit associations, delete their
+  >   distribution artifact, and create no comment.
+  > - Assert an advanced PR head deletes stale-run artifacts without posting.
+  > - Assert failed CI removes distribution artifacts and posts an unavailable
+  >   distribution comment.
+  > - Parse both workflow definitions to assert the PR-event guard, artifact
+  >   cleanup permissions, matching source locks, maximum queuing, and
+  >   disabled cancellation.
+  > - Adapt the existing event/artifact/bot-comment fixture to provide run
+  >   repository metadata and a mocked commit-association client while
+  >   retaining its managed-comment ownership and artifact-cleanup assertions.
+  > 
+  > Checks:
+  > - git diff --cached --check passes with exit code 0 and no output.
+  > - Index-backed Python parsing and compilation pass for all three staged
+  >   Python files.
+  > - Index-backed YAML parsing passes for the build composite and both
+  >   changed PR workflows.
+  > - bash -n passes for the staged release build script.
+  > - An in-memory unittest harness executes the staged release-pipeline
+  >   contract method with every file read served from staged blobs.
+  > - That contract test passes; the full package suite, new publisher suite,
+  >   distribution builds, and hosted workflows are not rerun during this
+  >   staged inspection.
+  > - Final inspection confirms unchanged HEAD and cached patch identity,
+  >   with no tracked unstaged or nonignored untracked paths.
+  > - Documentation and recorded execution artifacts are excluded because
+  >   none are staged.
+  > 
+  > Measurements:
+  > - Staged scope: seven files, 417 insertions, 54 deletions.
+  > - File topology: six modifications and one added test module.
+  > - Added publisher regression methods: 15.
+  > - Current index-backed release-contract run: one test passes in 0.038s.
+
 ## v1.1.0 - 2026-10-26
 
 - release tag: `v1.1.0`
