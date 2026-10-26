@@ -110,7 +110,57 @@ def _positive_integer(value: object, label: str) -> int:
     return value
 
 
-def _load_context(path: Path) -> RunContext:
+def _run_pull_request(client: GitHubClient, run: dict[str, object]) -> int:
+    """Resolve one PR by commit, source branch, source repository, and base repository."""
+
+    source_repository = _object(run.get("head_repository"), "run head repository")
+    source_name = source_repository.get("full_name")
+    branch = run.get("head_branch")
+    if (
+        not isinstance(source_name, str)
+        or not source_name
+        or not isinstance(branch, str)
+        or not branch
+    ):
+        raise DistributionCommentError("workflow run source identity is invalid")
+    matches: set[int] = set()
+    for page in range(1, 101):
+        response = client.request(
+            "GET", f"commits/{run['head_sha']}/pulls?per_page=100&page={page}"
+        )
+        if not isinstance(response, list):
+            raise DistributionCommentError("commit pull request inventory is invalid")
+        for value in response:
+            candidate = _object(value, "commit pull request")
+            head = _object(candidate.get("head"), "pull request head")
+            base = _object(candidate.get("base"), "pull request base")
+            base_repository = _object(base.get("repo"), "pull request base repository")
+            head_repository = head.get("repo")
+            if (
+                base_repository.get("full_name") == client.repository
+                and isinstance(head_repository, dict)
+                and head_repository.get("full_name") == source_name
+                and head.get("ref") == branch
+            ):
+                matches.add(
+                    _positive_integer(candidate.get("number"), "pull request number")
+                )
+                if len(matches) > 1:
+                    raise DistributionCommentError(
+                        "workflow run must identify one pull request"
+                    )
+        if len(response) < 100:
+            break
+    else:
+        raise DistributionCommentError(
+            "commit pull request inventory exceeds 10,000 entries"
+        )
+    if len(matches) != 1:
+        raise DistributionCommentError("workflow run must identify one pull request")
+    return matches.pop()
+
+
+def _load_context(path: Path, client: GitHubClient) -> RunContext:
     """Load and validate one completed pull-request CI workflow run."""
 
     try:
@@ -126,18 +176,15 @@ def _load_context(path: Path) -> RunContext:
     except (OSError, UnicodeDecodeError, json.JSONDecodeError) as error:
         raise DistributionCommentError("workflow event payload is invalid") from error
     run = _object(_object(event, "workflow event").get("workflow_run"), "workflow run")
-    pull_requests = run.get("pull_requests")
-    if not isinstance(pull_requests, list) or len(pull_requests) != 1:
-        raise DistributionCommentError("workflow run must identify one pull request")
-    pull_request = _object(pull_requests[0], "pull request")
     head_sha = run.get("head_sha")
     conclusion = run.get("conclusion")
     html_url = run.get("html_url")
     run_id = _positive_integer(run.get("id"), "workflow run ID")
-    repository = os.environ.get("GITHUB_REPOSITORY", "")
-    expected_url = f"https://github.com/{repository}/actions/runs/{run_id}"
+    repository = _object(run.get("repository"), "run repository")
+    expected_url = f"https://github.com/{client.repository}/actions/runs/{run_id}"
     if (
         run.get("name") != "CI"
+        or repository.get("full_name") != client.repository
         or run.get("event") != "pull_request"
         or run.get("status") != "completed"
         or not isinstance(head_sha, str)
@@ -150,9 +197,7 @@ def _load_context(path: Path) -> RunContext:
     return RunContext(
         run_id=run_id,
         run_attempt=_positive_integer(run.get("run_attempt"), "workflow run attempt"),
-        pull_request=_positive_integer(
-            pull_request.get("number"), "pull request number"
-        ),
+        pull_request=_run_pull_request(client, run),
         head_sha=head_sha,
         conclusion=conclusion,
         html_url=html_url,
@@ -373,10 +418,7 @@ def _close(
         raise DistributionCommentError("invalid closed pull request identity")
     value = _pull_request(client, pull_request)
     head = _object(value.get("head"), "pull request head")
-    if (
-        value.get("state") != "closed"
-        or head.get("sha") != head_sha
-    ):
+    if value.get("state") != "closed" or head.get("sha") != head_sha:
         raise DistributionCommentError("closed pull request identity changed")
     managed = [
         comment
@@ -428,13 +470,11 @@ def main() -> int:
                     "closed pull request head SHA is missing"
                 )
             _close(client, arguments.closed_pull_request, arguments.head_sha)
-            print(
-                f"PR #{arguments.closed_pull_request} distribution artifacts removed"
-            )
+            print(f"PR #{arguments.closed_pull_request} distribution artifacts removed")
             return 0
         if arguments.head_sha is not None:
             raise DistributionCommentError("head SHA requires a closed pull request")
-        context = _load_context(Path(os.environ.get("GITHUB_EVENT_PATH", "")))
+        context = _load_context(Path(os.environ.get("GITHUB_EVENT_PATH", "")), client)
         pull_request = _pull_request(client, context.pull_request)
         head = _object(pull_request.get("head"), "pull request head")
         if pull_request.get("state") == "closed":

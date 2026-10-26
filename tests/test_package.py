@@ -14,7 +14,7 @@ from io import StringIO
 from pathlib import Path
 from tempfile import TemporaryDirectory
 from textwrap import dedent
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
 from justdocs import cli, global_cli, project_recipes, self_update
 from justdocs.global_cli import GlobalCliError
@@ -1768,31 +1768,15 @@ class ThemePackageTest(unittest.TestCase):
         security = Path(".github/workflows/security.yml").read_text(encoding="utf-8")
         dependabot = Path(".github/dependabot.yml").read_text(encoding="utf-8")
         pyproject = Path("pyproject.toml").read_text(encoding="utf-8")
-        checkout_action = "actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0"
-        setup_python_action = (
-            "actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1"
-        )
-        upload_action = (
-            "actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a"
-        )
-        download_action = (
-            "actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c"
-        )
-        pypi_action = (
-            "pypa/gh-action-pypi-publish@cef221092ed1bacb1cc03d23a2d87d1d172e277b"
-        )
-        attest_action = (
-            "actions/attest-build-provenance@0f67c3f4856b2e3261c31976d6725780e5e4c373"
-        )
-        codeql_init_action = (
-            "github/codeql-action/init@99df26d4f13ea111d4ec1a7dddef6063f76b97e9"
-        )
-        codeql_analyze_action = (
-            "github/codeql-action/analyze@99df26d4f13ea111d4ec1a7dddef6063f76b97e9"
-        )
-        dependency_review_action = (
-            "actions/dependency-review-action@a1d282b36b6f3519aa1f3fc636f609c47dddb294"
-        )
+        checkout_action = "actions/checkout"
+        setup_python_action = "actions/setup-python"
+        upload_action = "actions/upload-artifact"
+        download_action = "actions/download-artifact"
+        pypi_action = "pypa/gh-action-pypi-publish"
+        attest_action = "actions/attest-build-provenance"
+        codeql_init_action = "github/codeql-action/init"
+        codeql_analyze_action = "github/codeql-action/analyze"
+        dependency_review_action = "actions/dependency-review-action"
         workflows = "\n".join(
             (
                 ci,
@@ -1823,12 +1807,18 @@ class ThemePackageTest(unittest.TestCase):
             }
             for source_name, source in action_sources.items()
         }
+        action_pins: dict[str, set[str]] = {}
         for source_name, references in action_refs.items():
             for reference in references:
                 if reference.startswith("./"):
                     continue
                 with self.subTest(source=source_name, action=reference):
                     self.assertRegex(reference, r"^[^@]+@[0-9a-f]{40}$")
+                action, _, revision = reference.partition("@")
+                action_pins.setdefault(action, set()).add(revision)
+        for action, revisions in action_pins.items():
+            with self.subTest(action=action, contract="consistent-action-pin"):
+                self.assertEqual(1, len(revisions))
 
         def workflow_steps(source: str) -> tuple[str, ...]:
             lines = source.splitlines()
@@ -1910,7 +1900,10 @@ class ThemePackageTest(unittest.TestCase):
                 "build-action": {setup_python_action},
                 "release-action": set(),
             },
-            action_refs,
+            {
+                source: {reference.partition("@")[0] for reference in references}
+                for source, references in action_refs.items()
+            },
         )
         for workflow_name, workflow_source, artifact_name in (
             ("ci", ci, "justdocs-python-dist"),
@@ -2065,9 +2058,11 @@ class ThemePackageTest(unittest.TestCase):
                     self.assertNotIn("${{", "\n".join(script_lines))
         self.assertIn("packaging>=24", pyproject)
         self.assertNotIn("packaging>=24,<", pyproject)
-        self.assertIn('requires = ["setuptools==83.0.0"]', pyproject)
-        self.assertIn('"build==1.5.1"', pyproject)
-        self.assertIn('"twine==6.2.0"', pyproject)
+        for package in ("setuptools", "build", "twine"):
+            with self.subTest(package=package, contract="pinned-build-tool"):
+                self.assertRegex(pyproject, rf'"{package}==[0-9]+\.[0-9]+\.[0-9]+"')
+                self.assertNotIn(f"{package}==", build_script)
+        self.assertIn('"$python_bin" -m pip install --upgrade \'.[release]\'', build_script)
         self.assertIn("SOURCE_DATE_EPOCH", build_script)
         self.assertIn("PYTHONHASHSEED", build_script)
         self.assertIn("gzip.GzipFile", build_script)
@@ -2088,6 +2083,7 @@ class ThemePackageTest(unittest.TestCase):
         self.assertIn("GitHub release asset inventory mismatch", verify_github_release)
         self.assertIn("workflow_run:", pr_distribution)
         self.assertIn("pull-requests: write", pr_distribution)
+        self.assertIn("actions: write", pr_distribution)
         self.assertIn("persist-credentials: false", pr_distribution)
         self.assertIn("sync-pr-python-dist-comment.py", pr_distribution)
         self.assertIn("pull_request_target:", pr_distribution_lifecycle)
@@ -2716,6 +2712,9 @@ class ThemePackageTest(unittest.TestCase):
                             "status": "completed",
                             "conclusion": "success",
                             "head_sha": "a" * 40,
+                            "head_branch": "feature",
+                            "head_repository": {"full_name": "FanaticPythoner/justdocs"},
+                            "repository": {"full_name": "FanaticPythoner/justdocs"},
                             "html_url": (
                                 "https://github.com/FanaticPythoner/justdocs/"
                                 "actions/runs/42"
@@ -2730,7 +2729,19 @@ class ThemePackageTest(unittest.TestCase):
                 os.environ,
                 {"GITHUB_REPOSITORY": "FanaticPythoner/justdocs"},
             ):
-                context = module._load_context(event_path)
+                context_client = Mock(repository="FanaticPythoner/justdocs")
+                context_client.request.return_value = [
+                    {
+                        "number": 137,
+                        "head": {
+                            "ref": "feature",
+                            "sha": "a" * 40,
+                            "repo": {"full_name": context_client.repository},
+                        },
+                        "base": {"repo": {"full_name": context_client.repository}},
+                    }
+                ]
+                context = module._load_context(event_path, context_client)
 
         class FakeClient:
             def __init__(self) -> None:

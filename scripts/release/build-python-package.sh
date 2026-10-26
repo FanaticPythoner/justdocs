@@ -6,7 +6,7 @@ export PYTHONHASHSEED="${PYTHONHASHSEED:-0}"
 export SOURCE_DATE_EPOCH="${SOURCE_DATE_EPOCH:-$(git log -1 --format=%ct)}"
 
 rm -rf dist build artifacts/release
-"$python_bin" -m pip install --upgrade 'build==1.5.1' 'twine==6.2.0'
+"$python_bin" -m pip install --upgrade '.[release]'
 "$python_bin" -m build
 for archive in dist/*.tar.gz; do
   "$python_bin" - "$archive" <<'PY'
