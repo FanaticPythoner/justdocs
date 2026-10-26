@@ -7,6 +7,10 @@ inputs:
     description: Python version to use.
     required: false
     default: "3.12"
+  source_dir:
+    description: Admitted source directory relative to the workspace.
+    required: false
+    default: "."
 
 outputs:
   dist_dir:
@@ -21,14 +25,16 @@ runs:
       with:
         python-version: ${{ inputs.python_version }}
         check-latest: true
-        cache: pip
-        cache-dependency-path: |
-          pyproject.toml
 
     - name: Build distributions
       shell: bash
-      run: bash scripts/release/build-python-package.sh
+      working-directory: ${{ inputs.source_dir }}
+      env:
+        BUILD_SCRIPT: ${{ github.action_path }}/../../../scripts/release/build-python-package.sh
+      run: bash "$BUILD_SCRIPT"
 
     - id: out
       shell: bash
-      run: echo "dist_dir=artifacts/release" >> "$GITHUB_OUTPUT"
+      env:
+        SOURCE_DIR: ${{ inputs.source_dir }}
+      run: echo "dist_dir=${SOURCE_DIR%/}/artifacts/release" >> "$GITHUB_OUTPUT"

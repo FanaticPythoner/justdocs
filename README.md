@@ -376,6 +376,12 @@ blocks GitHub Release creation. Successful publication requires exact PyPI wheel
 exact GitHub asset digests, exact release notes, the immutable tag target, provenance attestation,
 and stable latest-release binding.
 
+Manual dispatch selects the default branch as the workflow ref and supplies the release tag
+as input. Trusted event-commit tooling admits the tag's immutable SHA through default-branch
+ancestry and target-version checks before exporting its source. The isolated build job tests
+that exported source; publication jobs retain event-commit tooling and receive the target SHA
+as data. Release and nightly jobs omit dependency caching and disable credential persistence.
+
 Pull-request CI publishes `justdocs-python-dist` for 30 days after all matrix jobs and checksum
 round-trip checks pass. A trusted `workflow_run` job maintains one PR comment with the artifact
 digest, expiry, run identity, and isolated-install warning without executing pull-request code

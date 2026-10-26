@@ -194,3 +194,15 @@ GitHub asset digests with the reproducible local wheel and source archive.
 `next-release` applies the selected SemVer bump to the package version for every release,
 including the first stable tag. Release preparation writes no local artifacts. Workflow runners
 generate release notes and distributions from the pushed immutable tag.
+
+### Release Trust Boundary
+
+| Stage | Source and authority |
+| --- | --- |
+| Manual dispatch | Select the default branch as the workflow ref; supply the existing version tag as input. |
+| Source admission | Event-commit tooling validates the target tag, package version, immutable SHA, and default-branch ancestry before target code executes. |
+| Build | Export the admitted Git tree into a separate directory without Git credentials. Run its tests before building with the admitted commit timestamp. |
+| Publication | Run event-commit tooling with the admitted target SHA as data. Preserve explicit tag and asset-digest checks. |
+| Cache | Omit dependency-cache restore/save steps from release, nightly, and reusable build jobs. |
+
+Release tooling runs on Python 3.12 or newer. Package runtime support remains Python 3.10 or newer.

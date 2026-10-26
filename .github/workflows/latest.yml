@@ -28,37 +28,24 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           fetch-depth: 0
-          ref: main
+          ref: ${{ github.sha }}
+          persist-credentials: false
 
       - name: Set up Python
         uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
           python-version: '3.12'
           check-latest: true
-          cache: pip
 
       - name: Resolve latest release metadata
         id: meta
-        run: |
-          git fetch --no-tags --force origin main:refs/remotes/origin/main
-          release_sha="$(git rev-parse --verify 'refs/remotes/origin/main^{commit}')"
-          if [[ "$(git rev-parse --verify 'HEAD^{commit}')" != "$release_sha" ]]; then
-            echo 'checked-out source does not match origin/main' >&2
-            exit 1
-          fi
-          {
-            echo "release_ref=$release_sha"
-            echo "release_sha=$release_sha"
-            echo "release_short_sha=${release_sha:0:12}"
-          } >> "$GITHUB_OUTPUT"
-
-      - name: Install package
-        run: |
-          python -m pip install --upgrade pip
-          python -m pip install . pymdown-extensions==10.12
-
-      - name: Run test suite
-        run: PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=. python -m unittest discover -s tests
+        env:
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+          EVENT_NAME: ${{ github.event_name }}
+          EVENT_SHA: ${{ github.sha }}
+          REF_NAME: ${{ github.ref_name }}
+          REF_TYPE: ${{ github.ref_type }}
+        run: python -I scripts/release/release-source.py latest
 
   build:
     needs: preflight
@@ -83,7 +70,8 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           fetch-depth: 0
-          ref: ${{ needs.preflight.outputs.release_ref }}
+          ref: ${{ github.sha }}
+          persist-credentials: false
 
       - name: Download distributions
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
@@ -97,7 +85,6 @@ jobs:
         with:
           python-version: '3.12'
           check-latest: true
-          cache: pip
 
       - name: Install release tooling
         run: python -m pip install 'packaging>=24'
@@ -118,6 +105,7 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         with:
+          target_sha: ${{ needs.preflight.outputs.release_sha }}
           release_tag: latest
           release_name: Latest Nightly Build (${{ needs.preflight.outputs.release_short_sha }})
           prerelease: 'true'

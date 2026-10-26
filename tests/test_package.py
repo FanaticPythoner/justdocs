@@ -1747,7 +1747,7 @@ class ThemePackageTest(unittest.TestCase):
         build_script = Path("scripts/release/build-python-package.sh").read_text(
             encoding="utf-8"
         )
-        metadata_script = Path("scripts/release/resolve-release-metadata.sh").read_text(
+        metadata_script = Path("scripts/release/release-source.py").read_text(
             encoding="utf-8"
         )
         release_notes_script = Path("scripts/release/write-release-notes.sh").read_text(
@@ -1887,6 +1887,7 @@ class ThemePackageTest(unittest.TestCase):
                 },
                 "reusable": {
                     checkout_action,
+                    setup_python_action,
                     upload_action,
                     "./.github/actions/build-dist",
                 },
@@ -2014,8 +2015,8 @@ class ThemePackageTest(unittest.TestCase):
             release_action.index("- name: Preflight release transaction"),
         )
         self.assertLess(
-            release_action.index('recover-detached "$RELEASE_TAG"'),
             release_action.index('target_sha="$(git rev-parse'),
+            release_action.index('recover-detached "$RELEASE_TAG"'),
         )
         self.assertLess(
             release_action.index("- name: Preflight release transaction"),
@@ -2026,7 +2027,8 @@ class ThemePackageTest(unittest.TestCase):
             '"$RELEASE_TAG" "$RUNNER_TEMP" "$CREATE_OR_MOVE_TAG" "$target_sha"',
             release_action,
         )
-        self.assertIn("git rev-parse --verify 'HEAD^{commit}'", release_action)
+        self.assertIn('git rev-parse --verify "${TARGET_SHA}^{commit}"', release_action)
+        self.assertIn("TARGET_SHA: ${{ inputs.target_sha }}", release_action)
         self.assertNotIn("TARGET_SHA: ${{ github.sha }}", release_action)
         self.assertIn(
             'release_validate_boolean prerelease "$PRERELEASE"', release_action

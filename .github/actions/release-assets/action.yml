@@ -3,6 +3,9 @@ name: release-assets
 description: Publish verified GitHub Release assets transactionally.
 
 inputs:
+  target_sha:
+    required: true
+    description: Admitted release commit SHA independent of the control checkout.
   release_tag:
     required: true
     description: Release tag.
@@ -118,6 +121,7 @@ runs:
         GH_TOKEN: ${{ github.token }}
         RELEASE_TAG: ${{ inputs.release_tag }}
         CREATE_OR_MOVE_TAG: ${{ inputs.create_or_move_tag }}
+        TARGET_SHA: ${{ inputs.target_sha }}
       run: |
         set -euo pipefail
         transaction_root=''
@@ -135,11 +139,15 @@ runs:
           exit "$preflight_result"
         }
         trap cleanup_failed_preflight EXIT
+        if [[ ! "$TARGET_SHA" =~ ^[0-9a-f]{40}$ ]]; then
+          echo 'invalid target_sha: expected full lowercase commit SHA' >&2
+          exit 2
+        fi
+        target_sha="$(git rev-parse --verify "${TARGET_SHA}^{commit}")"
         if [[ "$RELEASE_TAG" == 'latest' ]]; then
           python3 scripts/release/transactional-github-release.py \
             recover-detached "$RELEASE_TAG"
         fi
-        target_sha="$(git rev-parse --verify 'HEAD^{commit}')"
         transaction_root="$(
           python3 scripts/release/transactional-github-release.py preflight \
             "$RELEASE_TAG" "$RUNNER_TEMP" "$CREATE_OR_MOVE_TAG" "$target_sha"
