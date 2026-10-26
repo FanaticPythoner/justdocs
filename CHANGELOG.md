@@ -5,6 +5,171 @@ and the exact commit boundary included by each immutable version tag.
 
 ## Unreleased
 
+## v1.1.2 - 2026-10-26
+
+- release tag: `v1.1.2`
+- previous release: `v1.1.1`
+
+### Included commits
+
+- [`88aaf0f`](https://github.com/FanaticPythoner/justdocs/commit/88aaf0fe5c37a63f933983716daf47b71fc0d186) fix: admit release sources before executing target code
+  > Separate event-commit release tooling from selected package sources.
+  > Validate release identities and default-branch ancestry before reading
+  > target metadata or exporting build inputs. Test admitted sources in the
+  > reusable build job and pass their immutable SHA to publication tooling.
+  > 
+  > Control checkout and workflow boundaries:
+  > - Bind every checkout in Release, Latest, and the reusable package build
+  >   to github.sha instead of a selected tag, branch, or workflow input.
+  > - Disable checkout credential persistence across these workflows.
+  > - Remove configured pip caching from release and nightly setup steps
+  >   and the shared distribution-build composite.
+  > - Retain event-commit publication and verification scripts when manually
+  >   releasing a tag whose commit differs from the workflow commit.
+  > - Move package installation and source tests from release preflight jobs
+  >   into the reusable build job after source admission and export.
+  > - Retain contents: read and no passed publication secrets for that job.
+  > 
+  > Release-source admission:
+  > - Add release-source.py with resolve, latest, and export subcommands.
+  > - Require nonempty environment identities without CR, LF, or NUL.
+  > - Require exact 40-character lowercase hexadecimal commit identities.
+  > - Validate the repository-provided default branch with check-ref-format.
+  > - Reject control checkouts whose HEAD differs from EVENT_SHA.
+  > - Fetch the explicit default-branch ref without forced replacement.
+  > - Require each admitted source to resolve to its exact commit SHA and
+  >   remain reachable from the fetched default-branch head.
+  > - Execute Git through argument lists and translate command, decoding,
+  >   and process failures into ReleaseSourceError.
+  > - Emit metadata only after the selected operation succeeds.
+  > - Append outputs to GITHUB_OUTPUT when configured; otherwise use stdout.
+  > - Report rejected source operations on stderr with exit code 1.
+  > 
+  > Version-tag resolution:
+  > - Require manual dispatch to use the default branch as its workflow ref
+  >   and select the release tag through INPUT_TAG.
+  > - Require push releases to originate from a tag ref.
+  > - Reject unsupported release events.
+  > - Accept canonical v-prefixed public PEP 440 versions; reject epochs,
+  >   local versions, malformed tags, and normalized spelling differences.
+  > - Fetch the selected tag and validate its commit ancestry before reading
+  >   target package metadata.
+  > - Bind push-tag resolution to the triggering event commit.
+  > - Read pyproject.toml from the admitted Git object instead of the
+  >   control checkout or an executed target script.
+  > - Reject empty metadata and blobs exceeding 1 MiB before reading them.
+  > - Reject malformed TOML, missing version fields, non-string versions,
+  >   and tag/package-version mismatches.
+  > - Return tag, prerelease, release_ref, release_sha, and the admitted
+  >   commit timestamp.
+  > - Replace duplicated shell metadata logic with a script-relative
+  >   wrapper that executes the Python resolver in isolated mode.
+  > 
+  > Latest-source resolution:
+  > - Replace inline main-branch resolution with the shared admission tool.
+  > - Accept push, schedule, and workflow_dispatch events only.
+  > - Require the workflow ref to match the repository default branch.
+  > - Reject a fetched default-branch head that differs from EVENT_SHA.
+  > - Return immutable source identities, the 12-character short SHA, and
+  >   the source commit timestamp.
+  > 
+  > Confined source export:
+  > - Require an immutable SHA before performing Git operations.
+  > - Recheck control identity and default-branch ancestry before export.
+  > - Resolve the source timestamp before creating export artifacts.
+  > - Require a new destination strictly beneath the workspace.
+  > - Reject workspace-root, existing, external, and symlink-resolved
+  >   destination paths.
+  > - Export the admitted tree with git archive without changing HEAD or
+  >   copying checkout Git metadata into the build directory.
+  > - Extract through tarfile's data filter to reject archive traversal
+  >   and links escaping the extraction directory.
+  > - Stage extraction beneath the workspace and rename the completed tree
+  >   into its destination after successful extraction.
+  > - Remove temporary archive and extraction data when export fails.
+  > 
+  > Distribution build contract:
+  > - Export admitted inputs into release-source using isolated Python.
+  > - Install the exported package and pymdown-extensions==10.12, then run
+  >   its unittest suite before building distributions.
+  > - Add source_dir to build-dist with "." as its compatibility default.
+  > - Run the build from source_dir while resolving BUILD_SCRIPT through
+  >   the control composite's github.action_path.
+  > - Execute the control-owned build script rather than the selected
+  >   source tree's copy.
+  > - Pass the admitted commit timestamp through SOURCE_DATE_EPOCH.
+  > - Derive dist_dir from source_dir so artifact upload reads the exported
+  >   tree's distribution directory.
+  > 
+  > Publication target contract:
+  > - Add required target_sha to the release-assets composite.
+  > - Supply the admitted release SHA from both Release and Latest.
+  > - Reject malformed target identities with exit code 2.
+  > - Resolve the supplied SHA as a commit before detached-release recovery.
+  > - Pass that explicit commit to transactional release preflight instead
+  >   of deriving the publication target from control-checkout HEAD.
+  > - Preserve the existing transaction staging, publication, and cleanup
+  >   flow around the explicit target.
+  > 
+  > Source-admission regression assertions:
+  > - Cover stable and prerelease resolution, exact metadata outputs, and
+  >   ancestry admission before target metadata access.
+  > - Reject unreviewed tags, unsafe or noncanonical tag values, mismatched
+  >   versions, invalid metadata, and metadata-size violations.
+  > - Cover default-branch dispatch restrictions, control/event mismatches,
+  >   push-tag binding, and moved Latest snapshots.
+  > - Reject malformed export SHAs before Git access.
+  > - Assert target-only exports, omitted .git metadata, source timestamps,
+  >   and unchanged repository HEAD.
+  > - Exercise an older real Git tree with network fetching intercepted.
+  > - Assert rejected ancestry and timestamp failures publish no directory.
+  > - Cover existing destinations, workspace escapes, symlink destinations,
+  >   archive traversal, external archive links, and temporary-data cleanup.
+  > - Assert isolated Python ignores candidate sitecustomize modules.
+  > - Assert typed CLI rejection produces no success output or traceback.
+  > 
+  > Workflow and publication regression assertions:
+  > - Require event-SHA checkouts and disabled credential persistence.
+  > - Require omitted dependency-cache configuration and absent cache-mode.
+  > - Assert export precedes source tests and source tests precede builds.
+  > - Require the trusted build-script path, exported working directory,
+  >   admitted timestamp, read-only permissions, and no passed secrets.
+  > - Require both publishers to forward the admitted target SHA.
+  > - Execute malformed-target preflight and assert rejection occurs before
+  >   legacy recovery or filesystem output.
+  > - Point the existing package pipeline contract at the Python metadata
+  >   authority and include reusable-build Python setup in its inventory.
+  > - Require explicit target resolution before detached-release recovery.
+  > 
+  > Release documentation:
+  > - Document default-branch manual dispatch with an existing tag input.
+  > - Describe ancestry and target-version admission before source execution.
+  > - Describe separate source export, test-before-build ordering, explicit
+  >   publication targets, omitted dependency caching, and credential handling.
+  > - Specify Python 3.12+ for release tooling while retaining the documented
+  >   Python 3.10+ package runtime boundary.
+  > 
+  > Checks:
+  > - git diff --cached --check passes with exit code 0 and no output.
+  > - In-memory compilation passes for all three staged Python files.
+  > - YAML syntax parsing passes for both staged composites and all three
+  >   staged workflows; parsing does not establish GitHub schema acceptance.
+  > - bash -n passes for the staged metadata wrapper.
+  > - An index-backed in-memory harness passes three workflow contract tests
+  >   and the existing package release-pipeline contract.
+  > - Runtime admission tests, the Bash failure-path test, full package
+  >   tests, builds, and CodeQL analysis are not rerun during this inspection.
+  > - Ignored audit artifacts and earlier execution results are excluded
+  >   from the staged evidence.
+  > - Final inspection confirms unchanged HEAD and cached patch identity,
+  >   with no tracked unstaged or nonignored untracked paths.
+  > 
+  > Measurements:
+  > - Staged scope: 11 files, 780 insertions, 122 deletions.
+  > - File topology: nine modifications and two additions.
+  > - Added regression methods: 24.
+  > - Current index-backed contract run: four tests pass in 0.075s.
+
 ## v1.1.1 - 2026-10-26
 
 - release tag: `v1.1.1`
