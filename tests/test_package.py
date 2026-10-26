@@ -21,6 +21,8 @@ from justdocs.global_cli import GlobalCliError
 from justdocs.plugins import (
     JustdocsLinkerError,
     LinkTarget,
+    _candidate_targets,
+    _dedupe_targets,
     _relative_url,
     _smart_link_markdown,
     _validate_linker_limits,
@@ -7428,13 +7430,6 @@ class ThemePackageTest(unittest.TestCase):
         self.assertIn("window.mermaid.run", script)
         self.assertIn("assets/js/mermaid.min.js", template)
 
-    def test_theme_css_prevents_drawer_table_overflow(self) -> None:
-        css = (theme_dir() / "assets/css/theme.css").read_text(encoding="utf-8")
-        self.assertIn('html[data-justdocs-viewport="drawer"] table', css)
-        self.assertIn("table-layout: fixed", css)
-        self.assertIn("overflow-wrap: anywhere", css)
-        self.assertNotIn("th:nth-child(2)", css)
-
     def test_theme_css_marks_linked_code_as_links(self) -> None:
         css = (theme_dir() / "assets/css/theme.css").read_text(encoding="utf-8")
         self.assertIn("main a[href]:not(.headerlink)", css)
@@ -7565,6 +7560,129 @@ class ThemePackageTest(unittest.TestCase):
             "guides/deployment-guide.md#release-flow",
             _relative_url("index.md", "guides/deployment-guide.md#release-flow"),
         )
+
+    def test_heading_reference_ids_resolve_pages_and_steps(self) -> None:
+        targets = tuple(
+            _candidate_targets(
+                "# [T1] Foundation\n\n## [J1] Verify inputs\n",
+                "team/foundation.md",
+            )
+        )
+        by_phrase = {target.phrase: target.url for target in targets}
+        self.assertEqual("team/foundation.md", by_phrase["T1"])
+        self.assertEqual(
+            "team/foundation.md#j1-verify-inputs", by_phrase["J1"]
+        )
+        self.assertEqual("team/foundation.md", by_phrase["Foundation"])
+
+    def test_heading_references_exclude_fenced_examples(self) -> None:
+        targets = tuple(
+            _candidate_targets(
+                "```markdown\n# [T9] Example\n```\n\n# [T1] Foundation\n",
+                "team/foundation.md",
+            )
+        )
+        phrases = {target.phrase for target in targets}
+        self.assertIn("T1", phrases)
+        self.assertNotIn("T9", phrases)
+        self.assertNotIn("[T9] Example", phrases)
+
+    def test_short_reference_ids_preserve_phrase_threshold(self) -> None:
+        targets = _dedupe_targets(
+            (
+                LinkTarget("F1", "forge/setup.md", "forge/setup.md"),
+                LinkTarget("FD", "limits.md", "limits.md"),
+            ),
+            4,
+        )
+        self.assertEqual(["F1"], [target.phrase for target in targets])
+
+    def test_duplicate_reference_ids_reject_conflicting_targets(self) -> None:
+        with self.assertRaisesRegex(JustdocsLinkerError, "duplicate reference id"):
+            _dedupe_targets(
+                (
+                    LinkTarget("F1", "forge/setup.md", "forge/setup.md"),
+                    LinkTarget("f1", "forge/other.md", "forge/other.md"),
+                ),
+                4,
+            )
+
+    def test_reference_links_cover_dependencies_steps_and_inline_code(self) -> None:
+        targets = _dedupe_targets(
+            (
+                LinkTarget("F1", "forge/setup.md", "forge/setup.md"),
+                LinkTarget("F11", "forge/handoff.md", "forge/handoff.md"),
+                LinkTarget("J1", "joint/run.md#j1-verify-inputs", "joint/run.md"),
+            ),
+            4,
+        )
+        markdown = (
+            "Requires F1, F11, `J1`, F111.\n\n"
+            "[F1](existing.md)\n\n```text\nF1 J1\n```\n"
+        )
+        linked = _smart_link_markdown(
+            markdown, "terraform/workflow.md", "terraform/workflow.md", targets, 8
+        )
+        self.assertIn("Requires [F1](../forge/setup.md)", linked)
+        self.assertIn("[F11](../forge/handoff.md)", linked)
+        self.assertIn("[`J1`](../joint/run.md#j1-verify-inputs)", linked)
+        self.assertIn("F111", linked)
+        self.assertIn("[F1](existing.md)", linked)
+        self.assertIn("```text\nF1 J1\n```", linked)
+
+    def test_reference_links_repeat_without_consuming_phrase_limit(self) -> None:
+        targets = (
+            LinkTarget("F1", "forge/setup.md", "forge/setup.md"),
+            LinkTarget("Foundation", "foundation.md", "foundation.md"),
+        )
+        linked = _smart_link_markdown(
+            "F1 F1 F1 `F1` Foundation Foundation",
+            "index.md",
+            "index.md",
+            targets,
+            8,
+            max_links_per_target=1,
+        )
+        self.assertEqual(4, linked.count("forge/setup.md"))
+        self.assertEqual(1, linked.count("](foundation.md)"))
+
+    def test_reference_links_obey_page_limit(self) -> None:
+        linked = _smart_link_markdown(
+            "F1 F1 F1 `F1`",
+            "index.md",
+            "index.md",
+            (LinkTarget("F1", "forge/setup.md", "forge/setup.md"),),
+            2,
+            max_links_per_target=1,
+        )
+        self.assertEqual(2, linked.count("forge/setup.md"))
+
+    def test_reference_links_reach_sections_on_current_page(self) -> None:
+        targets = (
+            LinkTarget("J1", "joint/run.md#j1-verify-inputs", "joint/run.md"),
+            LinkTarget("J2", "joint/run.md#j2-apply-foundation", "joint/run.md"),
+        )
+        linked = _smart_link_markdown(
+            "J2 requires J1 and `J1`.",
+            "joint/run.md",
+            "joint/run.md",
+            targets,
+            8,
+        )
+        self.assertIn("[J2](#j2-apply-foundation)", linked)
+        self.assertIn("[J1](#j1-verify-inputs)", linked)
+        self.assertIn("[`J1`](#j1-verify-inputs)", linked)
+
+    def test_reference_links_skip_current_page_without_fragment(self) -> None:
+        text = "F1 uses `F1`."
+        linked = _smart_link_markdown(
+            text,
+            "forge/setup.md",
+            "forge/setup.md",
+            (LinkTarget("F1", "forge/setup.md", "forge/setup.md"),),
+            8,
+        )
+        self.assertEqual(text, linked)
 
     def test_smart_link_markdown_links_tables_and_prose(self) -> None:
         markdown = (

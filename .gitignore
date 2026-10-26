@@ -221,3 +221,6 @@ artifacts/release/
 artifacts/release-notes.md
 TODOS_LISTS/
 .tmp-workflow-tools/
+artifacts/ci-listener/pip-cache/
+artifacts/ci-listener/tmp/
+artifacts/

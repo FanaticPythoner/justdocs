@@ -254,6 +254,7 @@ $env:JUSTDOCS_INSTALL_ACTION='uninstall'; irm https://github.com/FanaticPythoner
 | --- | --- |
 | `ThemeAssetError` | Required theme asset is absent. |
 | `TemplateAssetError` | Required project template asset is absent. |
+| `JustdocsLinkerError` | Invalid linker bounds, conflicting reference destinations or invalid enabled dependency graph. |
 | `ProjectJustfileExistsError` | Target `Justfile` exists and `--force` is absent. |
 | `ProjectJustfileInvalidPackageError` | Package spec is empty, invalid for shell splitting, or contains a pip option. |
 | `ProjectJustfileWriteError` | Project root or atomic `Justfile` replacement fails. |
@@ -392,7 +393,9 @@ state.
 | `enabled` | `true` | Empty target set and identity Markdown transform when false. |
 | `min_phrase_chars` | `4` | Minimum normalized phrase length. |
 | `max_links_per_page` | `512` | Upper bound for inserted links per page. |
-| `max_links_per_target` | `2` | Upper bound for repeated target phrase links per page. |
+| `max_links_per_target` | `2` | Upper bound for ordinary phrase links per page; reference IDs retain the page limit. |
+| `validate_dependencies` | `false` | Check every reference-heading artifact declaration and generate `dependency-graph.json`. Independent of link insertion. |
+| `dependency_targets` | `[]` | Unique lowercase names used to expand target-scoped nodes. Required when target nodes exist. |
 
 | Target source | Contract |
 | --- | --- |
@@ -401,14 +404,16 @@ state.
 | File stem | Title-cased stem with hyphen and underscore normalization. |
 | Action file stem `P\d+-\d{4}-title` | Action ID plus normalized action title. |
 | Action ID | Uppercase `P\d+-\d{4}` URL target. |
+| Heading reference ID | `# [T1] Foundation` declares a page reference; `## [J1] Verify inputs` declares a section reference. IDs contain an alphabetic prefix, trailing digits and optional numeric hyphen segments. |
 
 | Filter | Contract |
 | --- | --- |
 | Stop phrases | `about`, `api`, `cli`, `configuration`, `example`, `examples`, `home`, `index`, `introduction`, `overview`, `reference`, `references`, and `summary` are excluded. |
 | Ambiguity | A phrase resolving to more than one URL is excluded. |
-| Eligibility | Phrase requires `min_phrase_chars` and at least one alphabetic character. |
+| Eligibility | Ordinary phrases require `min_phrase_chars` and at least one alphabetic character; reference IDs can be shorter. |
+| Reference uniqueness | One reference ID must resolve to one page/section; conflicting destinations raise `JustdocsLinkerError`. |
 | Ordering | Longer phrases sort before shorter phrases; ties sort by phrase then URL. |
-| Current page | Targets from the current source path are skipped. |
+| Current page | Ordinary phrases and page-self references are skipped; declared section IDs link to their exact fragment on the current page. |
 
 | Protected Markdown range | Contract |
 | --- | --- |
@@ -418,7 +423,41 @@ state.
 | HTML tags | Never rewritten. |
 | ATX heading lines | Never rewritten. |
 | Inline code | General phrases are not linked inside inline code. |
-| Inline action IDs | `P\d+-\d{4}` tokens are linkable inside inline code outside other protected ranges. |
+| Inline reference IDs | Declared IDs such as `T1`, `F11`, `J1` and action IDs are linkable inside inline code outside other protected ranges. |
+
+Declare a reference ID in brackets at the start of its owning heading. Prose, dependency expressions and inline-code references link to that page or section without repeated URL declarations. Fenced examples do not declare targets. Reference IDs bypass the ordinary phrase repetition cap and retain the configured page cap.
+
+With `validate_dependencies: true`, every reference heading declares an artifact node. Place its metadata before the next heading:
+
+```markdown
+## [F7-1] Deliver admission library
+
+**Owner:** Component team
+**Requires:** None
+**Scope:** shared
+**Produces:** Versioned admission library
+**Verify:** Pass schema and policy conformance tests
+
+## [T1] Deliver foundation producer
+
+**Owner:** Infrastructure team
+**Requires:** F7-1
+**Scope:** shared
+**Produces:** Output producer using the admission library
+**Verify:** Pass producer-to-library contract tests
+```
+
+| Dependency rule | Contract |
+| --- | --- |
+| Required metadata | Nonempty `Owner`, `Requires`, `Scope`, `Produces`, `Verify`; duplicate fields fail. List-prefixed metadata is accepted. |
+| Prerequisites | Comma-separated declared IDs or exactly `None`. Prose, negation, duplicate IDs and unknown IDs fail. |
+| Scope | `shared`, `build`, `target`. Shared nodes consume shared nodes; build nodes consume shared/build nodes; target nodes also consume nodes bound to the same target. |
+| Target expansion | Each target node becomes `ID@target` for each configured `dependency_targets` entry. No cross-target edge is synthesized. |
+| Cycles | All edges are checked after expansion, including library/specification and integration edges. Self-dependencies and disconnected cycles fail. |
+| Report | Generated `dependency-graph.json` contains source locations, artifact metadata, expanded edges, topological layers/order and counts. Its source path is reserved when checking is enabled. |
+| Evidence | Graph checks prove declared ordering feasibility. Implementation completion and live execution require the declared verification evidence. |
+
+Dependency parsing takes O(p + h); expanded graph checking takes O(v log v + e) time and O(v + e) space. `v` and `e` count instantiated nodes and edges. An iterative cycle walk handles graphs exceeding the Python recursion depth.
 
 Complexity for one page:
 

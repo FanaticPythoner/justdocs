@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import posixpath
 import re
 from collections.abc import Mapping
@@ -11,10 +12,25 @@ from typing import Iterable
 
 from markdown.extensions.toc import slugify
 from mkdocs.config import config_options
+from mkdocs.exceptions import PluginError
 from mkdocs.plugins import BasePlugin
+from mkdocs.structure.files import File
+
+from justdocs.dependencies import (
+    DependencyError,
+    DependencyNode,
+    dependency_report,
+    parse_dependencies,
+)
+from justdocs.references import (
+    FENCE_PATTERN,
+    HEADING_PATTERN,
+    REFERENCE_HEADING_PATTERN,
+    REFERENCE_ID_PATTERN,
+)
 
 
-class JustdocsLinkerError(RuntimeError):
+class JustdocsLinkerError(PluginError):
     """Report invalid justdocs-linker input state."""
 
 
@@ -45,12 +61,8 @@ class CompiledLinkGraph:
     pattern: re.Pattern[str] | None
 
 
-HEADING_PATTERN = re.compile(r"^(#{1,6})[ \t]+(.+?)[ \t#]*$", re.MULTILINE)
 ACTION_ID_PATTERN = re.compile(r"\bP\d+-\d{4}\b", re.IGNORECASE)
 ACTION_STEM_PATTERN = re.compile(r"^(?P<id>P\d+-\d{4})-(?P<title>.+)$", re.IGNORECASE)
-FENCE_PATTERN = re.compile(
-    r"(?ms)^[ \t]{0,3}(?P<fence>`{3,}|~{3,}).*?^[ \t]{0,3}(?P=fence)[ \t]*$",
-)
 INLINE_CODE_PATTERN = re.compile(r"`[^`\n]+`")
 MARKDOWN_LINK_PATTERN = re.compile(r"!?\[[^\]\n]+]\([^)]+?\)")
 REFERENCE_LINK_PATTERN = re.compile(r"!?\[[^\]\n]+]\[[^\]\n]*]")
@@ -112,7 +124,7 @@ def _dash_normalized_text(value: str) -> str:
 def _is_eligible_phrase(value: str, min_phrase_chars: int) -> bool:
     phrase = _normalize_text(value)
     key = phrase.casefold()
-    if len(phrase) < min_phrase_chars:
+    if len(phrase) < min_phrase_chars and not REFERENCE_ID_PATTERN.fullmatch(phrase):
         return False
     if key in STOP_PHRASES:
         return False
@@ -122,7 +134,7 @@ def _is_eligible_phrase(value: str, min_phrase_chars: int) -> bool:
 
 
 def _heading_targets(markdown: str, src_path: str) -> Iterable[LinkTarget]:
-    for match in HEADING_PATTERN.finditer(markdown):
+    for match in HEADING_PATTERN.finditer(FENCE_PATTERN.sub("", markdown)):
         level = len(match.group(1))
         title = _clean_heading_text(match.group(2))
         if not title:
@@ -136,14 +148,20 @@ def _candidate_targets(markdown: str, src_path: str) -> Iterable[LinkTarget]:
     if action_match:
         yield LinkTarget(action_match.group(0).upper(), src_path, src_path)
 
-    title = next((target.phrase for target in _heading_targets(markdown, src_path)), "")
+    headings = tuple(_heading_targets(markdown, src_path))
+    title = headings[0].phrase if headings else ""
     if title:
         yield LinkTarget(title, src_path, src_path)
         normalized_title = _dash_normalized_text(title)
         if normalized_title != title:
             yield LinkTarget(normalized_title, src_path, src_path)
     yield LinkTarget(_title_from_stem(src_path), src_path, src_path)
-    yield from _heading_targets(markdown, src_path)
+    for target in headings:
+        reference = REFERENCE_HEADING_PATTERN.fullmatch(target.phrase)
+        if reference:
+            yield LinkTarget(reference.group("id").upper(), target.url, src_path)
+            yield LinkTarget(reference.group("title"), target.url, src_path)
+        yield target
 
 
 def _dedupe_targets(
@@ -162,6 +180,10 @@ def _dedupe_targets(
             by_key[key] = normalized
             continue
         if existing.url != normalized.url:
+            if REFERENCE_ID_PATTERN.fullmatch(phrase):
+                raise JustdocsLinkerError(
+                    f"duplicate reference id {phrase}: {existing.url}, {normalized.url}"
+                )
             ambiguous.add(key)
 
     return tuple(
@@ -246,6 +268,8 @@ def _merge_ranges(ranges: Iterable[tuple[int, int]]) -> tuple[tuple[int, int], .
 
 def _relative_url(current_url: str, target_url: str) -> str:
     target_path, separator, fragment = target_url.partition("#")
+    if separator and target_path == current_url:
+        return f"#{fragment}"
     current_base = (
         current_url if current_url.endswith("/") else posixpath.dirname(current_url)
     )
@@ -259,6 +283,13 @@ def _relative_url(current_url: str, target_url: str) -> str:
     if separator:
         return f"{relative}#{fragment}"
     return relative or "."
+
+
+def _is_linkable_target(target: LinkTarget, current_src_path: str) -> bool:
+    return target.src_path != current_src_path or (
+        REFERENCE_ID_PATTERN.fullmatch(target.phrase) is not None
+        and "#" in target.url
+    )
 
 
 def _link_segment(
@@ -286,8 +317,11 @@ def _link_segment(
         output.append(segment[cursor : match.start()])
         if (
             target is None
-            or target.src_path == current_src_path
-            or link_counts.get(key, 0) >= max_links_per_target
+            or not _is_linkable_target(target, current_src_path)
+            or (
+                not REFERENCE_ID_PATTERN.fullmatch(target.phrase)
+                and link_counts.get(key, 0) >= max_links_per_target
+            )
         ):
             output.append(match.group(0))
             cursor = match.end()
@@ -313,7 +347,6 @@ def _link_inline_code_segment(
     current_src_path: str,
     targets_by_key: dict[str, LinkTarget],
     link_counts: dict[str, int],
-    max_links_per_target: int,
     remaining_links: int,
 ) -> tuple[str, int]:
     linked = 0
@@ -323,15 +356,12 @@ def _link_inline_code_segment(
         if linked >= remaining_links:
             return match.group(0)
         phrase = _normalize_text(match.group(0).strip("`"))
-        if not ACTION_ID_PATTERN.fullmatch(phrase):
+        if not REFERENCE_ID_PATTERN.fullmatch(phrase):
             return match.group(0)
         key = _phrase_key(phrase)
         target = targets_by_key.get(key)
-        if target is None or target.src_path == current_src_path:
+        if target is None or not _is_linkable_target(target, current_src_path):
             return match.group(0)
-        if link_counts.get(key, 0) >= max_links_per_target:
-            return match.group(0)
-
         link_counts[key] = link_counts.get(key, 0) + 1
         linked += 1
         return f"[`{phrase}`]({_relative_url(current_url, target.url)})"
@@ -345,7 +375,6 @@ def _link_inline_code_refs(
     current_src_path: str,
     targets: CompiledLinkGraph,
     link_counts: dict[str, int],
-    max_links_per_target: int,
     max_links_per_page: int,
 ) -> tuple[str, int]:
     protected = _protected_ranges(markdown, include_inline_code=False)
@@ -361,7 +390,6 @@ def _link_inline_code_refs(
             current_src_path,
             targets_by_key,
             link_counts,
-            max_links_per_target,
             max_links_per_page - linked,
         )
         output.append(segment)
@@ -378,7 +406,6 @@ def _link_inline_code_refs(
         current_src_path,
         targets_by_key,
         link_counts,
-        max_links_per_target,
         max_links_per_page - linked,
     )
     output.append(segment)
@@ -404,7 +431,6 @@ def _smart_link_markdown(
         current_src_path,
         compiled_targets,
         link_counts,
-        max_links_per_target,
         max_links_per_page,
     )
     protected = _protected_ranges(markdown)
@@ -464,6 +490,8 @@ class JustdocsLinkerPlugin(BasePlugin):
         ("min_phrase_chars", config_options.Type(int, default=4)),
         ("max_links_per_page", config_options.Type(int, default=512)),
         ("max_links_per_target", config_options.Type(int, default=2)),
+        ("validate_dependencies", config_options.Type(bool, default=False)),
+        ("dependency_targets", config_options.ListOfItems(config_options.Type(str), default=[])),
     )
 
     def __init__(self) -> None:
@@ -474,22 +502,39 @@ class JustdocsLinkerPlugin(BasePlugin):
         return config
 
     def on_files(self, files, config):
-        if not self.config["enabled"]:
+        if not self.config["enabled"] and not self.config["validate_dependencies"]:
             self._link_graph = _compile_targets(())
             return files
 
         candidates: list[LinkTarget] = []
+        dependencies: list[DependencyNode] = []
         for file in files.documentation_pages():
             if not file.abs_src_path:
                 raise JustdocsLinkerError(
                     f"documentation page missing source path: {file.src_path}"
                 )
             markdown = Path(file.abs_src_path).read_text(encoding="utf-8")
-            candidates.extend(_candidate_targets(markdown, file.src_path))
+            if self.config["enabled"]:
+                candidates.extend(_candidate_targets(markdown, file.src_path))
+            if self.config["validate_dependencies"]:
+                try:
+                    dependencies.extend(parse_dependencies(markdown, file.src_path))
+                except DependencyError as error:
+                    raise JustdocsLinkerError(str(error)) from error
 
         self._link_graph = _compile_targets(
             _dedupe_targets(candidates, self.config["min_phrase_chars"])
         )
+        if self.config["validate_dependencies"]:
+            try:
+                report = dependency_report(dependencies, self.config["dependency_targets"])
+            except DependencyError as error:
+                raise JustdocsLinkerError(str(error)) from error
+            if files.get_file_from_path("dependency-graph.json") is not None:
+                raise JustdocsLinkerError("reserved dependency report path: dependency-graph.json")
+            files.append(File.generated(
+                config, "dependency-graph.json", content=json.dumps(report, indent=2) + "\n",
+            ))
         return files
 
     def on_page_markdown(self, markdown, page, config, files):
