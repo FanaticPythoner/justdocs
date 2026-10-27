@@ -67,6 +67,8 @@ def _control_identity() -> tuple[str, str]:
     event_sha = _sha(_required("EVENT_SHA"))
     if _git("rev-parse", "--verify", "HEAD^{commit}") != event_sha:
         raise ReleaseSourceError("control checkout does not match the event commit")
+    if _git("rev-parse", "--show-prefix"):
+        raise ReleaseSourceError("control checkout requires the repository root")
     return branch, event_sha
 
 
@@ -177,6 +179,39 @@ def _latest() -> dict[str, str]:
     }
 
 
+def _export_destination(directory: Path) -> tuple[Path, Path]:
+    """Canonicalize the workspace anchor while rejecting linked child paths."""
+
+    message = "source directory must be a new confined workspace path"
+    try:
+        workspace = Path.cwd()
+        root = workspace.resolve(strict=True)
+        if directory.is_absolute():
+            anchor = workspace if directory.is_relative_to(workspace) else root
+            relative = directory.relative_to(anchor)
+        else:
+            relative = directory
+        destination = root / relative
+        component = root
+        for part in relative.parts:
+            component = component / part
+            if component.is_symlink() or component.is_junction():
+                raise ValueError(message)
+        canonical = destination.resolve()
+        exists = destination.exists()
+    except (OSError, RuntimeError, ValueError) as error:
+        raise ReleaseSourceError(message) from error
+    if (
+        destination == root
+        or ".." in relative.parts
+        or not destination.is_relative_to(root)
+        or canonical != destination
+        or exists
+    ):
+        raise ReleaseSourceError(message)
+    return root, destination
+
+
 def _export(reference: str, directory: Path) -> dict[str, str]:
     """Export an admitted commit into a new confined build directory."""
 
@@ -186,17 +221,7 @@ def _export(reference: str, directory: Path) -> dict[str, str]:
     _git("fetch", "--no-tags", "origin", sha)
     _admit(sha, default_head)
     epoch = _epoch(sha)
-    root = Path.cwd().resolve()
-    destination = directory.absolute()
-    if (
-        destination == root
-        or not destination.is_relative_to(root)
-        or destination.resolve() != destination
-        or destination.exists()
-    ):
-        raise ReleaseSourceError(
-            "source directory must be a new confined workspace path"
-        )
+    root, destination = _export_destination(directory)
     with tempfile.TemporaryDirectory(dir=root, prefix=".release-source-") as temporary:
         stage = Path(temporary)
         archive = stage / "source.tar"

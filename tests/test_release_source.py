@@ -35,6 +35,8 @@ class Repository:
         self.calls.append(args)
         if args[0] in {"check-ref-format", "fetch"}:
             return ""
+        if args == ("rev-parse", "--show-prefix"):
+            return ""
         if args[:2] == ("rev-parse", "--verify"):
             if args[2] == "HEAD^{commit}":
                 return CONTROL
@@ -67,6 +69,67 @@ class Repository:
                     stream.addfile(member, io.BytesIO(payload))
             return ""
         raise AssertionError(f"unexpected Git operation: {args}")
+
+
+class GitRepository:
+    def __init__(self, root):
+        self.origin = root / "origin"
+        self.checkout = root / "checkout"
+        self.origin.mkdir()
+        self.environment = {
+            name: value
+            for name, value in os.environ.items()
+            if not name.startswith("GIT_")
+        } | {
+            "GIT_CONFIG_GLOBAL": os.devnull,
+            "GIT_CONFIG_NOSYSTEM": "1",
+            "GIT_AUTHOR_NAME": "Release Test",
+            "GIT_AUTHOR_EMAIL": "release@example.invalid",
+            "GIT_COMMITTER_NAME": "Release Test",
+            "GIT_COMMITTER_EMAIL": "release@example.invalid",
+            "GIT_AUTHOR_DATE": "2000-01-01T00:00:00+00:00",
+            "GIT_COMMITTER_DATE": "2000-01-01T00:00:00+00:00",
+        }
+        self.git(self.origin, "init", "--initial-branch=trunk")
+        self.metadata = '[project]\nversion = "1.2.3"\n'
+        (self.origin / "pyproject.toml").write_text(self.metadata, encoding="utf-8")
+        self.git(self.origin, "add", "pyproject.toml")
+        self.git(self.origin, "commit", "-m", "Add release source")
+        self.selected = self.git(self.origin, "rev-parse", "HEAD")
+        (self.origin / "pyproject.toml").write_text(
+            '[project]\nversion = "1.2.4"\n', encoding="utf-8"
+        )
+        self.environment |= {
+            "GIT_AUTHOR_DATE": "2000-01-02T00:00:00+00:00",
+            "GIT_COMMITTER_DATE": "2000-01-02T00:00:00+00:00",
+        }
+        self.git(self.origin, "add", "pyproject.toml")
+        self.git(self.origin, "commit", "-m", "Advance control source")
+        self.head = self.git(self.origin, "rev-parse", "HEAD")
+        self.git(
+            self.origin, "clone", "--no-local", str(self.origin), str(self.checkout)
+        )
+
+    def git(self, directory, *arguments):
+        return subprocess.run(
+            [
+                "git",
+                "-C",
+                str(directory),
+                "-c",
+                "core.autocrlf=false",
+                "-c",
+                "core.hooksPath=" + os.devnull,
+                "-c",
+                "commit.gpgsign=false",
+                *arguments,
+            ],
+            env=self.environment,
+            check=True,
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+        ).stdout.strip()
 
 
 @unittest.skipIf(sys.version_info < (3, 12), "release tooling runs on Python 3.12+")
@@ -162,6 +225,19 @@ class ReleaseSourceTests(unittest.TestCase):
             ):
                 self.module._release()
 
+    def test_control_checkout_rejects_parent_repository_discovery(self):
+        def nested_git(*arguments):
+            if arguments == ("rev-parse", "--show-prefix"):
+                return "release-source/"
+            return self.repo.git(*arguments)
+
+        with patch.object(self.module, "_git", nested_git):
+            with self.assertRaisesRegex(
+                self.module.ReleaseSourceError, "repository root"
+            ):
+                self.module._export(TARGET, Path("source"))
+        self.assertFalse(any(call[0] == "fetch" for call in self.repo.calls))
+
     def test_push_tag_is_bound_to_event_commit(self):
         with patch.dict(
             os.environ, {"EVENT_NAME": "push", "REF_TYPE": "tag", "REF_NAME": "v1.2.3"}
@@ -229,36 +305,82 @@ class ReleaseSourceTests(unittest.TestCase):
                 self.assertEqual([], list(Path(directory).iterdir()))
 
     def test_export_matches_actual_git_tree_without_mutating_repository(self):
-        head = self.read_only_git("rev-parse", "HEAD")
-        selected = self.read_only_git("rev-parse", "HEAD~1")
-        expected = self.read_only_git("show", f"{selected}:pyproject.toml")
-        commands = []
-
-        def admitted_git(*args):
-            commands.append(args)
-            if args[0] == "fetch":
-                return ""
-            if args[:2] == ("rev-parse", "--verify") and args[2].startswith(
-                "refs/remotes/"
-            ):
-                return head
-            return self.read_only_git(*args)
-
         with TemporaryDirectory() as directory:
-            target = Path(directory) / "source"
+            fixture = GitRepository(Path(directory).resolve())
+            target = fixture.checkout / "source"
+
+            def admitted_git(*arguments):
+                return self.read_only_git("-C", str(fixture.checkout), *arguments)
+
             with (
                 patch.object(self.module, "_git", admitted_git),
-                patch.object(self.module.Path, "cwd", return_value=Path(directory)),
-                patch.dict(os.environ, {"EVENT_SHA": head}),
+                patch.object(self.module.Path, "cwd", return_value=fixture.checkout),
+                patch.dict(os.environ, {"EVENT_SHA": fixture.head}),
             ):
-                result = self.module._export(selected, target)
-            self.assertEqual(expected, (target / "pyproject.toml").read_text().strip())
+                result = self.module._export(fixture.selected, target)
+            self.assertEqual(fixture.metadata, (target / "pyproject.toml").read_text())
             self.assertFalse((target / ".git").exists())
             self.assertEqual(
-                self.read_only_git("show", "-s", "--format=%ct", selected),
+                fixture.git(
+                    fixture.checkout, "show", "-s", "--format=%ct", fixture.selected
+                ),
                 result["source_date_epoch"],
             )
-            self.assertEqual(head, self.read_only_git("rev-parse", "HEAD"))
+            self.assertNotEqual(
+                fixture.git(
+                    fixture.checkout, "show", "-s", "--format=%ct", fixture.head
+                ),
+                result["source_date_epoch"],
+            )
+            self.assertEqual(
+                fixture.head, fixture.git(fixture.checkout, "rev-parse", "HEAD")
+            )
+            self.assertIn(
+                'version = "1.2.4"',
+                (fixture.checkout / "pyproject.toml").read_text(),
+            )
+            with (
+                patch.object(
+                    self.module,
+                    "_git",
+                    lambda *args: self.read_only_git("-C", str(target), *args),
+                ),
+                patch.object(self.module.Path, "cwd", return_value=target),
+                patch.dict(os.environ, {"EVENT_SHA": fixture.head}),
+                self.assertRaisesRegex(
+                    self.module.ReleaseSourceError, "repository root"
+                ),
+            ):
+                self.module._export(fixture.selected, target / "nested")
+            self.assertEqual([target / "pyproject.toml"], list(target.iterdir()))
+
+    @unittest.skipIf(os.name == "nt", "workspace alias uses a POSIX symlink")
+    def test_export_accepts_workspace_alias_without_allowing_linked_children(self):
+        with TemporaryDirectory() as directory:
+            root = Path(directory).resolve()
+            workspace = root / "workspace"
+            workspace.mkdir()
+            alias = root / "alias"
+            alias.symlink_to(workspace, target_is_directory=True)
+            with patch.object(self.module.Path, "cwd", return_value=alias):
+                for destination in (
+                    alias / "absolute",
+                    Path("relative"),
+                    workspace / "canonical",
+                ):
+                    with self.subTest(destination=destination):
+                        self.module._export(TARGET, destination)
+                        self.assertEqual(
+                            self.repo.metadata,
+                            (
+                                workspace / destination.name / "pyproject.toml"
+                            ).read_text(),
+                        )
+                link = workspace / "link"
+                link.symlink_to(workspace, target_is_directory=True)
+                with self.assertRaises(self.module.ReleaseSourceError):
+                    self.module._export(TARGET, alias / "link" / "source")
+                self.assertFalse((workspace / "source").exists())
 
     def test_timestamp_failure_does_not_publish_export_directory(self):
         with (
@@ -274,27 +396,70 @@ class ReleaseSourceTests(unittest.TestCase):
                 self.module._export(TARGET, Path(directory) / "source")
             self.assertEqual([], list(Path(directory).iterdir()))
 
-    @unittest.skipIf(os.name == "nt", "source link confinement requires POSIX symlinks")
     def test_export_rejects_existing_or_escaping_destination(self):
         with TemporaryDirectory() as directory:
             root = Path(directory)
             existing = root / "existing"
             existing.mkdir()
-            link = root / "link"
-            link.symlink_to(root, target_is_directory=True)
+            existing_file = root / "file"
+            existing_file.touch()
             with patch.object(self.module.Path, "cwd", return_value=root):
                 for destination in (
                     root,
                     existing,
+                    existing_file,
                     root.parent / "outside",
-                    link / "source",
+                    root.parent / f"{root.name}-adjacent" / "source",
+                    Path("../outside"),
+                    root / "existing" / ".." / "source",
                 ):
                     with (
                         self.subTest(destination=destination),
                         self.assertRaises(self.module.ReleaseSourceError),
                     ):
                         self.module._export(TARGET, destination)
-            self.assertEqual({existing, link}, set(root.iterdir()))
+            self.assertEqual({existing, existing_file}, set(root.iterdir()))
+
+    @unittest.skipIf(os.name == "nt", "source link confinement requires POSIX symlinks")
+    def test_export_rejects_linked_destinations_and_cycles(self):
+        with TemporaryDirectory() as directory:
+            root = Path(directory).resolve()
+            links = {
+                "internal": root,
+                "external": root.parent,
+                "dangling": root / "missing",
+                "cycle": root / "cycle",
+            }
+            for name, target in links.items():
+                (root / name).symlink_to(target, target_is_directory=True)
+            with patch.object(self.module.Path, "cwd", return_value=root):
+                for name in links:
+                    with (
+                        self.subTest(link=name),
+                        self.assertRaises(self.module.ReleaseSourceError),
+                    ):
+                        self.module._export(TARGET, root / name / "source")
+            self.assertEqual(set(links), {item.name for item in root.iterdir()})
+
+    @unittest.skipUnless(os.name == "nt", "Windows directory junction")
+    def test_export_rejects_directory_junction(self):
+        with TemporaryDirectory() as directory:
+            root = Path(directory).resolve()
+            target = root / "target"
+            target.mkdir()
+            junction = root / "junction"
+            subprocess.run(
+                ["cmd.exe", "/d", "/c", "mklink", "/J", str(junction), str(target)],
+                check=True,
+                capture_output=True,
+                text=True,
+            )
+            with (
+                patch.object(self.module.Path, "cwd", return_value=root),
+                self.assertRaises(self.module.ReleaseSourceError),
+            ):
+                self.module._export(TARGET, junction / "source")
+            self.assertEqual([], list(target.iterdir()))
 
     def test_archive_traversal_and_external_links_are_rejected_and_cleaned(self):
         for name, link in (("../escaped", None), ("link", "../../escaped")):
